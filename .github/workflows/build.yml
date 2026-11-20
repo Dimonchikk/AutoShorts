@@ -54,11 +54,11 @@ jobs:
           }
           if (-not $found) { Write-Error "У CHANGES.md немає розділу '## $v'"; exit 1 }
           Set-Content -Path notes.md -Value ($notes -join "`n").Trim() -Encoding UTF8
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag dist/AutoShorts.exe --clobber
-            gh release edit $tag --notes-file notes.md --title "AutoShorts $v"
-          } else {
-            gh release create $tag dist/AutoShorts.exe --draft --title "AutoShorts $v" --notes-file notes.md --target $env:GITHUB_SHA
-          }
+          # опублікований реліз з цим тегом не чіпаємо
+          $published = gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.draft == false and .tag_name == \"$tag\") | .id"
+          if ($published) { Write-Error "Реліз $tag уже опубліковано. Збільште версію."; exit 1 }
+          # старі чернетки цієї версії видаляємо, щоб лишилась одна
+          $drafts = gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$tag\") | .id"
+          foreach ($id in $drafts) { if ($id) { gh api -X DELETE "repos/${{ github.repository }}/releases/$id" | Out-Null } }
+          gh release create $tag dist/AutoShorts.exe --draft --title "AutoShorts $v" --notes-file notes.md --target $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { exit 1 }
