@@ -38,27 +38,24 @@ jobs:
           name: AutoShorts
           path: dist/AutoShorts.exe
 
-      - name: Create or update draft release
+      - name: Create draft release
         if: ${{ inputs.version != '' }}
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
         run: |
-          $v = '${{ inputs.version }}'
-          $tag = "v$v"
-          $lines = Get-Content CHANGES.md -Encoding UTF8
-          $notes = @(); $found = $false
-          foreach ($l in $lines) {
-            if ($l -match '^## ') { if ($found) { break }; if ($l.Trim() -eq "## $v") { $found = $true; continue } }
-            if ($found) { $notes += $l }
-          }
-          if (-not $found) { Write-Error "У CHANGES.md немає розділу '## $v'"; exit 1 }
-          Set-Content -Path notes.md -Value ($notes -join "`n").Trim() -Encoding UTF8
+          set -e
+          TAG="v$VERSION"
+          awk -v v="## $VERSION" '$0==v{f=1;next} f&&/^## /{exit} f{print}' CHANGES.md > notes.md
+          if [ ! -s notes.md ]; then echo "::error::У CHANGES.md немає розділу '## $VERSION'"; exit 1; fi
           # опублікований реліз з цим тегом не чіпаємо
-          $published = gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.draft == false and .tag_name == \"$tag\") | .id"
-          if ($published) { Write-Error "Реліз $tag уже опубліковано. Збільште версію."; exit 1 }
+          if [ -n "$(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft == false and .tag_name == \"$TAG\") | .id")" ]; then
+            echo "::error::Реліз $TAG уже опубліковано. Збільште версію."; exit 1
+          fi
           # старі чернетки цієї версії видаляємо, щоб лишилась одна
-          $drafts = gh api "repos/${{ github.repository }}/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$tag\") | .id"
-          foreach ($id in $drafts) { if ($id) { gh api -X DELETE "repos/${{ github.repository }}/releases/$id" | Out-Null } }
-          gh release create $tag dist/AutoShorts.exe --draft --title "AutoShorts $v" --notes-file notes.md --target $env:GITHUB_SHA
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          for id in $(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$TAG\") | .id"); do
+            gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+          gh release create "$TAG" dist/AutoShorts.exe --draft --title "AutoShorts $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
