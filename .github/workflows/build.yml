@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Версія (напр. 1.0.0). Порожньо — тестова збірка без релізу'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version matches code
+        if: ${{ inputs.version != '' }}
+        shell: pwsh
+        run: |
+          $m = Select-String -Path src/Version.cs -Pattern 'Text = "([^"]+)"'
+          $code = $m.Matches[0].Groups[1].Value
+          if ($code -ne '${{ inputs.version }}') {
+            Write-Error "Версія в коді ($code) не збігається з введеною (${{ inputs.version }}). Оновіть src/Version.cs"
+            exit 1
+          }
+
+      - name: Build
+        shell: pwsh
+        run: ./src/build.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoShorts
+          path: dist/AutoShorts.exe
+
+      - name: Create or update draft release
+        if: ${{ inputs.version != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ inputs.version }}'
+          $tag = "v$v"
+          $lines = Get-Content CHANGES.md -Encoding UTF8
+          $notes = @(); $found = $false
+          foreach ($l in $lines) {
+            if ($l -match '^## ') { if ($found) { break }; if ($l.Trim() -eq "## $v") { $found = $true; continue } }
+            if ($found) { $notes += $l }
+          }
+          if (-not $found) { Write-Error "У CHANGES.md немає розділу '## $v'"; exit 1 }
+          Set-Content -Path notes.md -Value ($notes -join "`n").Trim() -Encoding UTF8
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/AutoShorts.exe --clobber
+            gh release edit $tag --notes-file notes.md --title "AutoShorts $v"
+          } else {
+            gh release create $tag dist/AutoShorts.exe --draft --title "AutoShorts $v" --notes-file notes.md --target $env:GITHUB_SHA
+          }
+          if ($LASTEXITCODE -ne 0) { exit 1 }
