@@ -21,16 +21,21 @@ $icon = Join-Path $src 'app.ico'
 if (Test-Path $icon) { $common += "/win32icon:$icon" }
 
 # WinRT (детектор облич Windows) — якщо щось із цього відсутнє, збираємо без нього
-$winmdDir = Join-Path $env:WINDIR 'System32\WinMetadata'
+# System.Runtime.WindowsRuntime.dll посилається на збірку «Windows», тому потрібен об'єднаний Windows.winmd з Windows SDK
+$union = $null
+$kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\UnionMetadata'
+if (Test-Path $kits) {
+  $union = Get-ChildItem -Path $kits -Recurse -Filter 'Windows.winmd' -ErrorAction SilentlyContinue |
+           Where-Object { $_.Directory.Name -ne 'Facade' } | Sort-Object FullName -Descending |
+           Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $union) { $union = Join-Path $kits 'Windows.winmd (немає Windows SDK)' }
 $winrt = @(
   (Join-Path $fw 'System.Runtime.WindowsRuntime.dll'),
   (Join-Path $fw 'System.Runtime.dll'),
   (Join-Path $fw 'System.Threading.Tasks.dll'),
   (Join-Path $fw 'System.Runtime.InteropServices.WindowsRuntime.dll'),
-  (Join-Path $winmdDir 'Windows.Foundation.winmd'),
-  (Join-Path $winmdDir 'Windows.Media.winmd'),
-  (Join-Path $winmdDir 'Windows.Graphics.winmd'),
-  (Join-Path $winmdDir 'Windows.Storage.winmd')
+  $union
 )
 $missing = $winrt | Where-Object { -not (Test-Path $_) }
 
