@@ -24,6 +24,8 @@ namespace AutoShorts
         public string CaptionUrl;
         public string CaptionLang;
         public bool CaptionAuto;
+        public object Raw;
+        public List<string> CaptionLangs = new List<string>();   // мови оригінальних субтитрів
     }
 
     static class Downloader
@@ -64,7 +66,8 @@ namespace AutoShorts
                 hp.Value = Json.Num(h, "value", 0);
                 info.Heatmap.Add(hp);
             }
-            PickCaptions(o, info);
+            info.Raw = o;
+            PickCaptions(o, info, null, null);
             return info;
         }
 
@@ -75,11 +78,33 @@ namespace AutoShorts
             return null;
         }
 
-        static void PickCaptions(object o, VideoInfo info)
+        /// <summary>Вибір мови субтитрів (null — автоматично) і автопереклад YouTube (null — без перекладу).</summary>
+        public static void ChooseCaptions(VideoInfo info, string lang, string translateTo)
+        {
+            if (info.Raw == null) return;
+            info.CaptionUrl = null;
+            PickCaptions(info.Raw, info, lang, translateTo);
+        }
+
+        static void PickCaptions(object o, VideoInfo info, string prefer, string translateTo)
         {
             var manual = Json.Get(o, "subtitles") as IDictionary<string, object>;
             var auto = Json.Get(o, "automatic_captions") as IDictionary<string, object>;
-            var lang = info.Language;
+            info.CaptionLangs.Clear();
+            if (manual != null) foreach (var k in manual.Keys) if (k != "live_chat" && !info.CaptionLangs.Contains(k)) info.CaptionLangs.Add(k);
+            if (auto != null) foreach (var k in auto.Keys) if (k.EndsWith("-orig")) { var l = k.Replace("-orig", ""); if (!info.CaptionLangs.Contains(l)) info.CaptionLangs.Add(l); }
+            if (!string.IsNullOrEmpty(translateTo) && auto != null && auto.ContainsKey(translateTo))
+            {
+                var tu = Json3Url(auto[translateTo]);
+                if (tu != null)
+                {
+                    info.CaptionUrl = tu;
+                    info.CaptionLang = translateTo + "-tr";
+                    info.CaptionAuto = true;
+                    return;
+                }
+            }
+            var lang = string.IsNullOrEmpty(prefer) ? info.Language : prefer;
             var tries = new List<Tuple<IDictionary<string, object>, string, bool>>();
 
             if (!string.IsNullOrEmpty(lang))
@@ -170,6 +195,25 @@ namespace AutoShorts
             }
             if (!File.Exists(target))
                 throw new Exception("Не вдалося завантажити відео: " + r.Tail(400));
+            return target;
+        }
+
+        /// <summary>Копіює локальне відео в робочу папку як source.mp4 (перепаковує без перекодування, якщо це не mp4).</summary>
+        public static async Task<string> ImportLocalAsync(string path, string workDir, CancellationToken ct)
+        {
+            var target = Path.Combine(workDir, "source.mp4");
+            if (File.Exists(target) && new FileInfo(target).Length > 100000) return target;
+            if (string.Equals(Path.GetExtension(path), ".mp4", StringComparison.OrdinalIgnoreCase))
+            {
+                await Task.Run(() => File.Copy(path, target, true), ct);
+                return target;
+            }
+            var r = await Tools.RunAsync(Tools.FFmpeg, "-v error -y -i " + Tools.Q(path) + " -map 0:v:0 -map 0:a:0? -c:v copy -c:a aac -b:a 192k -movflags +faststart " + Tools.Q(target), workDir, null, ct);
+            if (r.ExitCode != 0 || !File.Exists(target))
+            {
+                r = await Tools.RunAsync(Tools.FFmpeg, "-v error -y -i " + Tools.Q(path) + " -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 20 -c:a aac -b:a 192k -movflags +faststart " + Tools.Q(target), workDir, null, ct);
+                if (r.ExitCode != 0 || !File.Exists(target)) throw new Exception("FFmpeg не зміг прочитати файл: " + r.Tail(300));
+            }
             return target;
         }
     }

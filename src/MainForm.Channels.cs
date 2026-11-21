@@ -12,10 +12,10 @@ namespace AutoShorts
     public partial class MainForm
     {
         ListView channelList;
-        NumericUpDown perDayNum;
+        Stepper perDayNum;
         Label channelHint;
 
-        ComboBox reportChannelCombo;
+        Dropdown reportChannelCombo;
         ListView reportList;
         Label reportSummary;
         StatTile statShorts, statLive, statViews, statAvg, statHour;
@@ -31,7 +31,7 @@ namespace AutoShorts
                 var ch = SelectedChannel();
                 if (ch != null) perDayNum.Value = Math.Max(1, Math.Min(12, ch.ShortsPerDay));
             };
-            perDayNum = new NumericUpDown { Minimum = 1, Maximum = 12, Value = 2, Width = 58 };
+            perDayNum = new Stepper(104) { Minimum = 1, Maximum = 12, Value = 2 };
             channelHint = Hint("Кожен канал входить через свій Google-акаунт. Найкращий час рахується з переглядів ваших відео за перші 48 годин " +
                                "залежно від дня й години публікації. Якщо даних мало — 17:00–22:00 за Києвом, найсильніші пт і нд.");
 
@@ -81,7 +81,8 @@ namespace AutoShorts
             using (var f = new Form { Text = "Як підключити YouTube", Size = new Size(840, 660), StartPosition = FormStartPosition.CenterParent, Font = Font, BackColor = Theme.Bg, ShowInTaskbar = false })
             {
                 f.HandleCreated += (s, e) => Theme.StyleWindow(f);
-                var tb = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = Guide.Text, Font = Theme.F(10.5F), BorderStyle = BorderStyle.None, BackColor = Color.White, ForeColor = Theme.Text };
+                var tb = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = Guide.Text, Font = Theme.F(10.5F), BorderStyle = BorderStyle.None, BackColor = Theme.Card, ForeColor = Theme.Text };
+                DarkScroll(tb);
                 var card = CardOf(tb);
                 card.Margin = new Padding(0);
                 var bar = Row(Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl), ButtonKind.Primary, Glyphs.Link),
@@ -102,7 +103,7 @@ namespace AutoShorts
             {
                 if (MessageBox.Show("Спершу потрібен Client ID від Google (робиться один раз). Показати інструкцію?", "AutoShorts",
                         MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes) ShowGuide();
-                ShowPage(4);
+                ShowPage(PSettings);
                 return;
             }
             try
@@ -179,7 +180,7 @@ namespace AutoShorts
 
         Page BuildReportTab()
         {
-            reportChannelCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 230 };
+            reportChannelCombo = Dd("Канал");
             var lv = List("Назва", 400, "Публікація (Київ)", 150, "Перегляди", 100, "Лайки", 80, "Коментарі", 95, "Статус", 100);
             lv.MutedColumn = 1;
             lv.EmptyText = "Оберіть канал і натисніть «Оновити статистику»";
@@ -197,7 +198,7 @@ namespace AutoShorts
             var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0) };
             tiles.Controls.AddRange(new Control[] { statShorts, statLive, statViews, statAvg, statHour });
 
-            var top = CardOf(Row(Lbl("Канал"), reportChannelCombo,
+            var top = CardOf(Row(reportChannelCombo,
                 Btn("Оновити статистику", (s, e) => LoadReport(), ButtonKind.Primary, Glyphs.Refresh), reportSummary));
             var list = CardOf(Stack(Section("Шортси"), 0, reportList, 100));
             list.Margin = new Padding(0);

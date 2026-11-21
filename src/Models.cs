@@ -63,8 +63,42 @@ namespace AutoShorts
         public string VideoId { get; set; }
         public DateTime PublishAtUtc { get; set; }
         public bool Published { get; set; }
+        public string StyleName { get; set; }
+        // оцінка віральності 0–100 і її складові
+        public int Virality { get; set; }
+        public int ScoreHook { get; set; }
+        public int ScoreViews { get; set; }
+        public int ScoreEnergy { get; set; }
+        public int ScoreTempo { get; set; }
 
         public double Duration { get { return End - Start; } }
+    }
+
+    /// <summary>Набір обробки для проєкту (як «Recipe» в OpusClip). Усе працює без ШІ — FFmpeg і субтитри YouTube.</summary>
+    public class Recipe
+    {
+        public bool Captions { get; set; }
+        public string CaptionLang { get; set; }      // null — автоматично
+        public string TranslateTo { get; set; }      // null — без перекладу (автопереклад YouTube)
+        public string SrtPath { get; set; }          // свій файл субтитрів
+        public string Keywords { get; set; }         // моменти, які треба включити (слова через кому)
+        public bool Hook { get; set; }
+        public string HookStyle { get; set; }
+        public string Layout { get; set; }           // "crop" — кадр за обличчям, "fit" — ціле відео на розмитому фоні
+        public bool EnhanceAudio { get; set; }
+        public bool ColorBoost { get; set; }
+        public bool AutoZoom { get; set; }
+        public bool Fades { get; set; }
+        public string LogoPath { get; set; }
+        public string LogoPos { get; set; }
+
+        public Recipe()
+        {
+            Captions = true; Hook = true; HookStyle = "Класичний"; Layout = "crop";
+            EnhanceAudio = true; ColorBoost = false; AutoZoom = false; Fades = true; LogoPos = "Праворуч угорі";
+        }
+
+        public Recipe Clone() { return (Recipe)MemberwiseClone(); }
     }
 
     public class Job
@@ -85,6 +119,20 @@ namespace AutoShorts
         public string Error { get; set; }
         public string OutputDir { get; set; }
         public List<ClipItem> Clips { get; set; }
+        // відрізок відео для пошуку моментів (0 — усе відео) і своя довжина кліпів (0 — з налаштувань)
+        public double RangeStart { get; set; }
+        public double RangeEnd { get; set; }
+        public int MinLen { get; set; }
+        public int MaxLen { get; set; }
+        public string ThumbPath { get; set; }
+        public string CaptionFile { get; set; }
+        public Recipe Recipe { get; set; }
+        public DateTime AddedUtc { get; set; }
+
+        public bool IsLocal()
+        {
+            return !string.IsNullOrEmpty(Url) && !Url.StartsWith("http", StringComparison.OrdinalIgnoreCase);
+        }
 
         public Job()
         {
@@ -95,7 +143,12 @@ namespace AutoShorts
 
         public string DisplayName
         {
-            get { return string.IsNullOrEmpty(SourceTitle) ? Url : SourceTitle; }
+            get
+            {
+                if (!string.IsNullOrEmpty(SourceTitle)) return SourceTitle;
+                if (IsLocal()) { try { return System.IO.Path.GetFileNameWithoutExtension(Url); } catch { } }
+                return Url;
+            }
         }
     }
 }

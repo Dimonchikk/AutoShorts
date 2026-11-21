@@ -20,6 +20,8 @@ namespace AutoShorts
         public int MaxSeconds { get; set; }
         public bool FaceFraming { get; set; }
         public bool HookTitle { get; set; }
+        public Recipe Recipe { get; set; }          // останні вибрані налаштування обробки
+        public bool NavCollapsed { get; set; }
         public bool RequirePreview { get; set; }
         public bool UploadCover { get; set; }
         public string DefaultChannelId { get; set; }
@@ -42,6 +44,8 @@ namespace AutoShorts
             UploadCover = true;
             Channels = new List<ChannelInfo>();
             Published = new List<PublishedItem>();
+            Recipe = new Recipe();
+            NavCollapsed = true;
         }
 
         public static string AppDir
@@ -78,6 +82,7 @@ namespace AutoShorts
             if (s == null) s = new AppSettings();
             if (s.Channels == null) s.Channels = new List<ChannelInfo>();
             if (s.Published == null) s.Published = new List<PublishedItem>();
+            if (s.Recipe == null) { s.Recipe = new Recipe(); s.Recipe.Hook = s.HookTitle; }
             if (s.MinSeconds < 10) s.MinSeconds = 30;
             if (s.MaxSeconds < s.MinSeconds + 5) s.MaxSeconds = Math.Max(60, s.MinSeconds + 5);
             if (s.ClipsPerVideo < 1) s.ClipsPerVideo = 3;

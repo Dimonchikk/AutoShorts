@@ -78,7 +78,7 @@ namespace AutoShorts
         /// Шукає найцікавіші фрагменти: графік «найчастіше переглядають», сплески гучності і щільність мови.
         /// </summary>
         public static List<ClipItem> Find(double duration, List<HeatPoint> heat, double[] loud, List<Word> words,
-                                          int count, int minLen, int maxLen)
+                                          int count, int minLen, int maxLen, double rangeStart = 0, double rangeEnd = 0, string include = null)
         {
             int n = (int)Math.Ceiling(Math.Max(duration, loud.Length));
             if (n < minLen) { minLen = Math.Max(5, n - 1); maxLen = Math.Max(minLen, n); }
@@ -113,6 +113,21 @@ namespace AutoShorts
                 if (i < 5) score[i] *= 0.5; // перші секунди часто інтро
                 if (i > n - 8) score[i] *= 0.5; // кінцівка з «підписуйтесь»
             }
+            // «моменти, які треба включити»: секунди, де звучать ці слова, отримують бонус
+            var stems = (include ?? "").Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .SelectMany(p => p.Trim().ToLowerInvariant().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                .Select(w => Captions.Clean(w)).Where(w => w.Length >= 3).Select(w => w.Length > 5 ? w.Substring(0, w.Length - 2) : w).Distinct().ToList();
+            if (stems.Count > 0 && hasWords)
+            {
+                var boost = new double[n];
+                foreach (var w in words)
+                {
+                    var t = Captions.Clean(w.Text).ToLowerInvariant();
+                    if (t.Length < 3 || !stems.Any(st => t.StartsWith(st))) continue;
+                    for (int k = Math.Max(0, (int)w.Start - 8); k < Math.Min(n, (int)w.Start + 12); k++) boost[k] = 1;
+                }
+                for (int i = 0; i < n; i++) score[i] += 0.6 * boost[i];
+            }
             var prefix = new double[n + 1];
             for (int i = 0; i < n; i++) prefix[i + 1] = prefix[i] + score[i];
 
@@ -137,6 +152,16 @@ namespace AutoShorts
             }
             ends.Sort();
 
+            // відрізок, який обрав користувач
+            double r0 = Math.Max(0, rangeStart), r1 = rangeEnd > r0 + minLen ? Math.Min(n, rangeEnd) : n;
+            if (r0 > 0 || r1 < n)
+            {
+                starts = starts.Where(t => t >= r0 && t + minLen <= r1).ToList();
+                ends = ends.Where(t => t <= r1).ToList();
+                if (starts.Count == 0) for (double t = r0; t + minLen <= r1; t += 2) starts.Add(t);
+                if (ends.Count == 0) for (double t = r0 + minLen; t <= r1; t += 2) ends.Add(t);
+            }
+
             var cands = new List<ClipItem>();
             foreach (var s in starts)
             {
@@ -157,9 +182,9 @@ namespace AutoShorts
                     cands.Add(ci);
                     if (best == null || sc > best.Score) best = ci;
                 }
-                if (best == null && s + minLen <= n)
+                if (best == null && s + minLen <= r1)
                 {
-                    double e = Math.Min(n, s + (minLen + maxLen) / 2.0);
+                    double e = Math.Min(r1, s + (minLen + maxLen) / 2.0);
                     int a = (int)s, b = Math.Min(n, (int)Math.Ceiling(e));
                     if (b > a) cands.Add(new ClipItem { Start = s, End = e, Score = (prefix[b] - prefix[a]) / (b - a) * 0.9 });
                 }
@@ -173,6 +198,27 @@ namespace AutoShorts
                 if (!overlap) chosen.Add(c);
             }
             chosen = chosen.OrderBy(c => c.Start).ToList();
+            // оцінка віральності 0–100: відносно найкращого фрагмента + абсолютний рівень
+            double maxSc = chosen.Count > 0 ? chosen.Max(c => c.Score) : 1, minSc = chosen.Count > 0 ? chosen.Min(c => c.Score) : 0;
+            Func<double[], int, int, int> avg = (arr, a, b) =>
+            {
+                b = Math.Min(arr.Length, b); a = Math.Max(0, a);
+                if (b <= a) return 0;
+                double sum = 0; for (int k = a; k < b; k++) sum += arr[k];
+                return (int)Math.Round(100 * Math.Max(0, Math.Min(1, sum / (b - a))));
+            };
+            var audioArr = new double[n];
+            for (int k = 0; k < n; k++) audioArr[k] = 0.5 * loudN[k] + 0.5 * spikeN[k];
+            foreach (var c in chosen)
+            {
+                double rel = maxSc - minSc > 1e-9 ? (c.Score - minSc) / (maxSc - minSc) : 1;
+                c.Virality = Math.Max(1, Math.Min(99, (int)Math.Round(62 + 26 * rel + 11 * Math.Min(1, c.Score / 0.6))));
+                int a = (int)c.Start, b = (int)Math.Ceiling(c.End);
+                c.ScoreHook = Math.Min(99, 40 + avg(score, a, a + 3) * 6 / 10);
+                c.ScoreViews = hasHeat ? Math.Min(99, 40 + avg(heatS, a, b) * 6 / 10) : 0;
+                c.ScoreEnergy = Math.Min(99, 40 + avg(audioArr, a, b) * 6 / 10);
+                c.ScoreTempo = hasWords ? Math.Min(99, 40 + avg(speech, a, b) * 6 / 10) : 0;
+            }
             for (int i = 0; i < chosen.Count; i++)
             {
                 chosen[i].Index = i + 1;

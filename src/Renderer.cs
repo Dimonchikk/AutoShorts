@@ -28,6 +28,14 @@ namespace AutoShorts
             return new Size(1920, 1080);
         }
 
+        public static async Task<double> ProbeDurationAsync(string video, CancellationToken ct)
+        {
+            var r = await Tools.RunAsync(Tools.FFprobe, "-v error -show_entries format=duration -of csv=p=0 " + Tools.Q(video), null, null, ct);
+            double d;
+            double.TryParse((r.Output ?? "").Trim().Split('\n')[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out d);
+            return d;
+        }
+
         public static async Task<List<string>> ExtractFramesAsync(string video, double start, double dur, string dir, CancellationToken ct)
         {
             Directory.CreateDirectory(dir);
@@ -54,22 +62,76 @@ namespace AutoShorts
                    "[b]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1";
         }
 
-        public static async Task RenderAsync(string video, Size src, ClipItem clip, List<Word> clipWords, SubStyle style,
-                                             bool hookTitle, string outPath, Action<int> progress, CancellationToken ct)
+        const string FitFilter = "split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:2,eq=brightness=-0.08[bg];" +
+                                 "[b]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1";
+
+        static string Num(double v) { return v.ToString("0.###", CultureInfo.InvariantCulture); }
+
+        // Автонаближення: кожне друге речення трохи ближче — як ручний монтаж «jump zoom»
+        static string ZoomFilter(List<Word> words, double duration)
         {
+            var segs = new List<string>();
+            double segStart = 0;
+            int n = 0;
+            for (int i = 0; i < words.Count; i++)
+            {
+                bool end = i == words.Count - 1 || Captions.EndsSentence(words[i].Text) || words[i + 1].Start - words[i].End > 0.5;
+                if (!end) continue;
+                double segEnd = i + 1 < words.Count ? words[i + 1].Start : duration;
+                if (n % 2 == 1 && segEnd - segStart > 0.6) segs.Add("between(it," + Num(segStart) + "," + Num(segEnd) + ")");
+                segStart = segEnd;
+                n++;
+                if (segs.Count >= 24) break;
+            }
+            if (segs.Count == 0)
+            {
+                for (double t = 4; t < duration && segs.Count < 24; t += 8) segs.Add("between(it," + Num(t) + "," + Num(Math.Min(duration, t + 4)) + ")");
+            }
+            return "zoompan=z='if(" + string.Join("+", segs) + ",1.12,1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30";
+        }
+
+        static string LogoOverlay(string pos)
+        {
+            switch (pos)
+            {
+                case "Ліворуч угорі": return "overlay=48:64";
+                case "Ліворуч унизу": return "overlay=48:H-h-260";
+                case "Праворуч унизу": return "overlay=W-w-48:H-h-260";
+                default: return "overlay=W-w-48:64";
+            }
+        }
+
+        public static async Task RenderAsync(string video, Size src, ClipItem clip, List<Word> clipWords, SubStyle style,
+                                             Recipe recipe, string outPath, Action<int> progress, CancellationToken ct)
+        {
+            if (recipe == null) recipe = new Recipe();
             var dir = Path.GetDirectoryName(outPath);
             Directory.CreateDirectory(dir);
             var assName = Path.GetFileNameWithoutExtension(outPath) + ".ass";
             var keywords = new HashSet<string>(Metadata.Keywords(clip.Text, 6));
-            var ass = SubtitleStyles.BuildAss(clipWords, style, hookTitle ? clip.Hook : null, clip.Duration, keywords);
+            var capWords = recipe.Captions ? clipWords : new List<Word>();
+            var hook = recipe.Hook ? clip.Hook : null;
+            var ass = SubtitleStyles.BuildAss(capWords, style, hook, clip.Duration, keywords, recipe.HookStyle);
             File.WriteAllText(Path.Combine(dir, assName), ass, new UTF8Encoding(false));
 
-            var vf = CropFilter(src, clip.FaceX);
-            if (clipWords.Count > 0 || hookTitle) vf += ",subtitles=" + assName;
+            bool logo = !string.IsNullOrEmpty(recipe.LogoPath) && File.Exists(recipe.LogoPath);
+            var vf = "[0:v]" + (recipe.Layout == "fit" ? FitFilter : CropFilter(src, clip.FaceX));
+            if (recipe.ColorBoost) vf += ",eq=contrast=1.07:saturation=1.2:brightness=0.015:gamma=0.98,unsharp=5:5:0.45:5:5:0";
+            if (recipe.AutoZoom) vf += "," + ZoomFilter(clipWords, clip.Duration);
+            if (capWords.Count > 0 || hook != null) vf += ",subtitles=" + assName;
+            if (logo)
+                vf += "[base];[1:v]scale=220:-1,format=rgba,colorchannelmixer=aa=0.9[lg];[base][lg]" + LogoOverlay(recipe.LogoPos);
+            if (recipe.Fades)
+                vf += ",fade=t=in:st=0:d=0.25,fade=t=out:st=" + Num(Math.Max(0, clip.Duration - 0.35)) + ":d=0.35";
             vf += "[v]";
+            var af = new List<string>();
+            if (recipe.EnhanceAudio) af.Add("highpass=f=70,afftdn=nf=-25,loudnorm=I=-14:TP=-1.5:LRA=11");
+            if (recipe.Fades) af.Add("afade=t=in:st=0:d=0.2,afade=t=out:st=" + Num(Math.Max(0, clip.Duration - 0.35)) + ":d=0.35");
+            var inputs = " -i " + Tools.Q(video) + (logo ? " -i " + Tools.Q(recipe.LogoPath) : "");
+            var afArg = af.Count > 0 ? " -af \"" + string.Join(",", af) + "\"" : "";
             var tmp = outPath + ".tmp.mp4";
             var args = "-y -v error -nostats -progress pipe:1 -ss " + F(clip.Start) + " -t " + F(clip.Duration) +
-                       " -i " + Tools.Q(video) + " -filter_complex \"" + vf + "\" -map \"[v]\" -map 0:a? -sn -dn" +
+                       inputs + " -filter_complex \"" + vf + "\" -map \"[v]\" -map 0:a?" + afArg + " -sn -dn -t " + F(clip.Duration) +
                        " -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30 -c:a aac -b:a 160k -ar 48000" +
                        " -movflags +faststart " + Tools.Q(tmp);
             double total = clip.Duration;

@@ -99,7 +99,20 @@ namespace AutoShorts
             return groups;
         }
 
-        public static string BuildAss(List<Word> words, SubStyle st, string hook, double duration, HashSet<string> keywords)
+        public static readonly string[] HookStyles = { "Класичний", "Біла плашка", "Рожева плашка", "Без плашки" };
+
+        static string HookStyleLine(string name)
+        {
+            switch (name)
+            {
+                case "Біла плашка": return "Style: Hook,Arial Black,76,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1";
+                case "Рожева плашка": return "Style: Hook,Arial Black,76,&H00FFFFFF,&H00FFFFFF,&H00882EFF,&H00882EFF,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1";
+                case "Без плашки": return "Style: Hook,Arial Black,84,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,8,80,80,260,1";
+                default: return "Style: Hook,Arial Black,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1";
+            }
+        }
+
+        public static string BuildAss(List<Word> words, SubStyle st, string hook, double duration, HashSet<string> keywords, string hookStyle = null)
         {
             var sb = new StringBuilder();
             sb.AppendLine("[Script Info]");
@@ -116,7 +129,7 @@ namespace AutoShorts
                 st.Font, st.Size, Color(st.Primary, "00"),
                 st.Box ? Color("000000", "40") : Color(st.Outline, "00"),
                 Color("000000", "80"), st.Box ? 3 : 1, st.OutlineWidth, st.Shadow, st.MarginV));
-            sb.AppendLine("Style: Hook,Arial Black,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1");
+            sb.AppendLine(HookStyleLine(hookStyle));
             sb.AppendLine();
             sb.AppendLine("[Events]");
             sb.AppendLine("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text");
@@ -125,7 +138,7 @@ namespace AutoShorts
             {
                 var h = hook.Replace("{", "").Replace("}", "").Replace("\\", "").ToUpperInvariant();
                 sb.AppendLine("Dialogue: 1," + Time(0) + "," + Time(Math.Min(3.2, duration)) +
-                              ",Hook,,0,0,0,,{\\fad(150,250)\\3c&H000000&\\4c&H000000&}" + h);
+                              ",Hook,,0,0,0,,{\\fad(150,250)}" + h);
             }
 
             var groups = Group(words, st);

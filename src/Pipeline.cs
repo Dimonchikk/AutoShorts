@@ -28,6 +28,16 @@ namespace AutoShorts
             changed(job);
         }
 
+        Recipe RecipeOf(Job job)
+        {
+            if (job.Recipe == null)
+            {
+                job.Recipe = settings.Recipe != null ? settings.Recipe.Clone() : new Recipe();
+                job.Recipe.Hook = settings.HookTitle;
+            }
+            return job.Recipe;
+        }
+
         static string SafeName(string s)
         {
             s = Regex.Replace(s ?? "video", "[\\\\/:*?\"<>|\\r\\n\\t]", " ");
@@ -42,33 +52,84 @@ namespace AutoShorts
             Status(job, "Підготовка інструментів", 1);
             await Tools.EnsureAsync(log, ct);
 
-            Status(job, "Читаю інформацію про відео", 3);
-            var info = await Downloader.GetInfoAsync(job.Url, ct);
-            job.VideoId = info.Id;
-            job.SourceTitle = info.Title;
-            job.SourceChannel = info.Channel;
-            job.SourceTags = info.Tags;
-            job.SourceDuration = info.Duration;
-            log("Відео: " + info.Title + " (" + TimeSpan.FromSeconds(info.Duration).ToString(@"h\:mm\:ss") + ")" +
-                (info.Heatmap.Count > 0 ? ", є графік «найчастіше переглядають»" : ", графіка переглядів немає"));
-            var work = Downloader.WorkDir(info.Id);
-
-            Status(job, "Субтитри", 5);
+            VideoInfo info;
             List<Word> words;
-            try { words = await Downloader.GetWordsAsync(info, work, ct); }
-            catch (Exception ex) { words = new List<Word>(); log("Не вдалося отримати субтитри: " + ex.Message); }
-            if (words.Count == 0) log("Субтитрів немає — кліпи будуть без тексту.");
-            else log("Субтитри (" + info.CaptionLang + (info.CaptionAuto ? ", автоматичні" : "") + "): " + words.Count + " слів");
+            string work, video;
+            if (job.IsLocal())
+            {
+                Status(job, "Читаю файл", 3);
+                if (!File.Exists(job.Url)) throw new Exception("Файл не знайдено: " + job.Url);
+                var fi = new FileInfo(job.Url);
+                info = new VideoInfo
+                {
+                    Id = "local_" + ((uint)(fi.FullName.ToLowerInvariant() + fi.Length + fi.LastWriteTimeUtc.Ticks).GetHashCode()).ToString("x8"),
+                    Title = Path.GetFileNameWithoutExtension(fi.Name),
+                    Url = fi.FullName,
+                    Channel = "",
+                    Description = ""
+                };
+                job.VideoId = info.Id;
+                job.SourceTitle = info.Title;
+                job.SourceChannel = "";
+                work = Downloader.WorkDir(info.Id);
+                Status(job, "Готую відео", 5);
+                video = await Downloader.ImportLocalAsync(fi.FullName, work, ct);
+                info.Duration = await Renderer.ProbeDurationAsync(video, ct);
+                job.SourceDuration = info.Duration;
+                var rcl = RecipeOf(job);
+                words = !string.IsNullOrEmpty(rcl.SrtPath) && File.Exists(rcl.SrtPath) ? Captions.ParseSrtFile(rcl.SrtPath) : Captions.FromSidecar(fi.FullName);
+                                log("Файл: " + info.Title + " (" + TimeSpan.FromSeconds(info.Duration).ToString(@"h\:mm\:ss") + ")" +
+                    (words.Count > 0 ? ", субтитри з .srt: " + words.Count + " слів" : ", без субтитрів (покладіть поруч .srt з такою ж назвою, щоб були)"));
+                try { await Thumbs.FromVideoAsync(job, video, ct); } catch { }
+                changed(job);
+            }
+            else
+            {
+                Status(job, "Читаю інформацію про відео", 3);
+                info = await Downloader.GetInfoAsync(job.Url, ct);
+                job.VideoId = info.Id;
+                job.SourceTitle = info.Title;
+                job.SourceChannel = info.Channel;
+                job.SourceTags = info.Tags;
+                job.SourceDuration = info.Duration;
+                log("Відео: " + info.Title + " (" + TimeSpan.FromSeconds(info.Duration).ToString(@"h\:mm\:ss") + ")" +
+                    (info.Heatmap.Count > 0 ? ", є графік «найчастіше переглядають»" : ", графіка переглядів немає"));
+                work = Downloader.WorkDir(info.Id);
+                try { await Thumbs.EnsureAsync(job, ct); } catch { }
+                changed(job);
 
-            Status(job, "Завантаження відео", 6);
-            var video = await Downloader.DownloadVideoAsync(info, work, p => Status(job, "Завантаження відео " + p + "%", 6 + p * 34 / 100), ct);
+                Status(job, "Субтитри", 5);
+                var rc = RecipeOf(job);
+                if (!string.IsNullOrEmpty(rc.SrtPath) && File.Exists(rc.SrtPath))
+                {
+                    words = Captions.ParseSrtFile(rc.SrtPath);
+                    job.CaptionFile = rc.SrtPath;
+                    log("Субтитри зі свого файлу: " + Path.GetFileName(rc.SrtPath) + " (" + words.Count + " слів)");
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(rc.CaptionLang) || !string.IsNullOrEmpty(rc.TranslateTo))
+                        Downloader.ChooseCaptions(info, rc.CaptionLang, rc.TranslateTo);
+                    try { words = await Downloader.GetWordsAsync(info, work, ct); }
+                    catch (Exception ex) { words = new List<Word>(); log("Не вдалося отримати субтитри: " + ex.Message); }
+                    if (info.CaptionUrl != null) job.CaptionFile = Path.Combine(work, "captions." + info.CaptionLang + ".json3");
+                    if (!string.IsNullOrEmpty(rc.TranslateTo) && (info.CaptionLang ?? "").EndsWith("-tr"))
+                        log("Субтитри перекладено автоперекладом YouTube: " + rc.TranslateTo);
+                }
+                if (words.Count == 0) log("Субтитрів немає — кліпи будуть без тексту.");
+                else log("Субтитри (" + info.CaptionLang + (info.CaptionAuto ? ", автоматичні" : "") + "): " + words.Count + " слів");
+
+                Status(job, "Завантаження відео", 6);
+                video = await Downloader.DownloadVideoAsync(info, work, p => Status(job, "Завантаження відео " + p + "%", 6 + p * 34 / 100), ct);
+            }
 
             Status(job, "Аналіз гучності", 41);
             var loud = await Highlights.LoudnessAsync(video, work, ct);
 
             Status(job, "Пошук цікавих моментів", 45);
             int count = job.ClipCount > 0 ? job.ClipCount : settings.ClipsPerVideo;
-            var clips = Highlights.Find(Math.Max(info.Duration, loud.Length), info.Heatmap, loud, words, count, settings.MinSeconds, settings.MaxSeconds);
+            int minLen = job.MinLen > 0 ? job.MinLen : settings.MinSeconds, maxLen = job.MaxLen > 0 ? job.MaxLen : settings.MaxSeconds;
+            var clips = Highlights.Find(Math.Max(info.Duration, loud.Length), info.Heatmap, loud, words, count, minLen, maxLen, job.RangeStart, job.RangeEnd, RecipeOf(job).Keywords);
             if (clips.Count == 0) throw new Exception("Не знайшлося фрагментів потрібної довжини.");
             log("Знайдено фрагментів: " + clips.Count);
 
@@ -104,9 +165,9 @@ namespace AutoShorts
                 try { clip.FaceX = await FaceFrame.CenterXAsync(frames); }
                 catch (Exception ex) { log("Пошук облич не спрацював: " + ex.Message); }
             }
-            var style = SubtitleStyles.Get(job.StyleName ?? settings.SubtitleStyle);
+            var style = SubtitleStyles.Get(clip.StyleName ?? job.StyleName ?? settings.SubtitleStyle);
             clip.VideoPath = Path.Combine(job.OutputDir, "short_" + clip.Index.ToString("00") + ".mp4");
-            await Renderer.RenderAsync(video, size, clip, clipWords, style, settings.HookTitle, clip.VideoPath, progress, ct);
+            await Renderer.RenderAsync(video, size, clip, clipWords, style, RecipeOf(job), clip.VideoPath, progress, ct);
 
             try
             {
@@ -131,8 +192,15 @@ namespace AutoShorts
             var video = Path.Combine(work, "source.mp4");
             if (!File.Exists(video)) throw new Exception("Вихідне відео видалено з кешу. Додайте посилання знову.");
             List<Word> words = new List<Word>();
-            var cap = Directory.GetFiles(work, "captions.*.json3").FirstOrDefault();
-            if (cap != null) words = Captions.ParseJson3(File.ReadAllText(cap));
+            var rcr = RecipeOf(job);
+            if (!string.IsNullOrEmpty(rcr.SrtPath) && File.Exists(rcr.SrtPath)) words = Captions.ParseSrtFile(rcr.SrtPath);
+            else if (job.IsLocal()) words = Captions.FromSidecar(job.Url);
+            else if (job.CaptionFile != null && File.Exists(job.CaptionFile)) words = Captions.ParseJson3(File.ReadAllText(job.CaptionFile));
+            else
+            {
+                var cap = Directory.GetFiles(work, "captions.*.json3").FirstOrDefault();
+                if (cap != null) words = Captions.ParseJson3(File.ReadAllText(cap));
+            }
             var size = await Renderer.ProbeSizeAsync(video, ct);
             string title = clip.Title, desc = clip.Description, tags = clip.Tags;
             await BuildClipAsync(job, clip, video, size, words, work, p => { clip.Status = "Рендер " + p + "%"; changed(job); }, ct);

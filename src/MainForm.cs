@@ -28,8 +28,12 @@ namespace AutoShorts
 
         SideNav nav;
         readonly List<Page> pages = new List<Page>();
+        Panel content;
         LinkLabel updateLink;
         System.Windows.Forms.Timer updateTimer;
+
+        // індекси сторінок
+        const int PHome = 0, PClips = 1, PCalendar = 2, PReport = 3, PChannels = 4, PLog = 5, PSettings = 6, PCreate = 7;
 
         public MainForm()
         {
@@ -44,32 +48,46 @@ namespace AutoShorts
             BackColor = Theme.Bg;
             ForeColor = Theme.Text;
             Text = "AutoShorts";
-            MinimumSize = new Size(1060, 700);
-            Size = new Size(1260, 830);
+            MinimumSize = new Size(1120, 740);
+            Size = new Size(1320, 860);
             StartPosition = FormStartPosition.CenterScreen;
+            AllowDrop = true;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            nav = new SideNav { Dock = DockStyle.Left, Width = 236, Subtitle = "Версія " + AppVersion.Text };
-            nav.Items.Add(new SideNav.Item(Glyphs.Download, "Черга"));
-            nav.Items.Add(new SideNav.Item(Glyphs.Video, "Кліпи"));
-            nav.Items.Add(new SideNav.Item(Glyphs.People, "Канали"));
+            nav = new SideNav { Dock = DockStyle.Left, Subtitle = "Версія " + AppVersion.Text };
+            nav.Items.Add(new SideNav.Item(Glyphs.Home, "Головна"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Clips, "Кліпи"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Calendar, "Календар"));
             nav.Items.Add(new SideNav.Item(Glyphs.Chart, "Звіт"));
-            nav.Items.Add(new SideNav.Item(Glyphs.Settings, "Налаштування"));
-            nav.SelectedChanged += (s, e) => ShowPage(nav.SelectedIndex);
+            nav.Items.Add(new SideNav.Item(Glyphs.People, "Канали"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Log, "Журнал") { Bottom = true });
+            nav.Items.Add(new SideNav.Item(Glyphs.Settings, "Налаштування") { Bottom = true });
+            nav.Collapsed = settings.NavCollapsed;
+            nav.Width = nav.Collapsed ? 76 : 232;
+            nav.SelectedChanged += (s, e) => { if (!navSync) ShowPage(nav.SelectedIndex); };
+            nav.CollapsedChanged += (s, e) =>
+            {
+                nav.Width = (int)((nav.Collapsed ? 76 : 232) * Theme.Dpi);
+                settings.NavCollapsed = nav.Collapsed;
+                try { settings.Save(); } catch { }
+            };
 
-            pages.Add(BuildQueueTab());
+            pages.Add(BuildHomePage());
             pages.Add(BuildClipsTab());
-            pages.Add(BuildChannelsTab());
+            pages.Add(BuildCalendarPage());
             pages.Add(BuildReportTab());
+            pages.Add(BuildChannelsTab());
+            pages.Add(BuildLogPage());
             pages.Add(BuildSettingsTab());
+            pages.Add(BuildCreatePage());
 
-            var content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
+            content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
             foreach (var p in pages) { p.Visible = false; content.Controls.Add(p); }
 
             updateLink = new LinkLabel
             {
-                Dock = DockStyle.Top, Visible = false, Height = 38, TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = Theme.AccentSoft, LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed,
+                Dock = DockStyle.Top, Visible = false, Height = 40, TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Theme.SidebarBg, LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed,
                 LinkBehavior = LinkBehavior.HoverUnderline, Font = Theme.Semi(10F)
             };
             updateLink.LinkClicked += (s, e) => OpenUrl(updateLink.Tag as string ?? Updates.ReleasesUrl);
@@ -77,9 +95,12 @@ namespace AutoShorts
 
             Controls.Add(content);
             Controls.Add(nav);
-            ShowPage(0);
+            ShowPage(PHome);
             ResumeLayout(false);
             HandleCreated += (s, e) => Theme.StyleWindow(this);
+
+            DragEnter += (s, e) => { if (e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Text)) e.Effect = DragDropEffects.Copy; };
+            DragDrop += (s, e) => OnDropped(e.Data);
 
             RefreshChannelCombos();
             RefreshJobs();
@@ -92,6 +113,8 @@ namespace AutoShorts
                 Log("AutoShorts " + AppVersion.Text + " запущено. Обличчя: " + (FaceFrame.Available ? "детектор Windows доступний" : "недоступно (кадр по центру)"));
                 if (string.IsNullOrWhiteSpace(settings.ClientId))
                     Log("Щоб публікувати на YouTube, заповніть Client ID у «Налаштуваннях» (там є інструкція).");
+                LoadThumbsAsync();
+                if (jobs.Any(j => !j.Done && j.Error == null)) StartStop();
                 await CheckUpdatesAsync();
             };
             updateTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
@@ -100,12 +123,20 @@ namespace AutoShorts
             FormClosing += OnClosing;
         }
 
+        int currentPage = -1;
+        bool navSync;
+
         void ShowPage(int index)
         {
             SuspendLayout();
             for (int i = 0; i < pages.Count; i++) pages[i].Visible = i == index;
             ResumeLayout(true);
-            if (nav.SelectedIndex != index) nav.SelectedIndex = index;
+            currentPage = index;
+            navSync = true;
+            nav.SelectedIndex = index < nav.Items.Count ? index : PHome;
+            navSync = false;
+            if (index == PCalendar) RefreshCalendar();
+            if (index == PClips) RefreshClips();
         }
 
         void UpdateNav()
@@ -113,8 +144,8 @@ namespace AutoShorts
             if (nav == null) return;
             int pending = jobs.Count(j => !j.Done && j.Error == null);
             int unpublished = jobs.Sum(j => j.Clips.Count(c => !c.Published && c.VideoPath != null));
-            nav.Items[0].Badge = pending > 0 ? pending.ToString() : null;
-            nav.Items[1].Badge = unpublished > 0 ? unpublished.ToString() : null;
+            nav.Items[PHome].Badge = pending > 0 ? pending.ToString() : null;
+            nav.Items[PClips].Badge = unpublished > 0 ? unpublished.ToString() : null;
             var cur = running ? jobs.FirstOrDefault(j => !j.Done && j.Error == null) : null;
             nav.Busy = running || publishing;
             nav.Status = publishing ? "Публікую на YouTube…" : running ? (cur != null ? "Обробка · " + cur.Progress + "%" : "Обробка…") : "Готово до роботи";
@@ -125,7 +156,7 @@ namespace AutoShorts
         {
             var u = await Updates.CheckAsync();
             if (u == null) return;
-            updateLink.Text = "Доступна нова версія AutoShorts " + u.Item1 + "  ·  Завантажити";
+            updateLink.Text = "🎉  Вийшла нова версія AutoShorts " + u.Item1 + " — натисніть, щоб завантажити  →";
             updateLink.Tag = u.Item2;
             updateLink.Visible = true;
         }
@@ -160,6 +191,19 @@ namespace AutoShorts
         static Label Section(string text)
         {
             return new Label { Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = Theme.Semi(11F), ForeColor = Theme.Text, Margin = new Padding(3, 3, 3, 8) };
+        }
+
+        static Dropdown Dd(string prefix, params object[] items)
+        {
+            var d = new Dropdown { Prefix = prefix };
+            d.Items.AddRange(items);
+            if (items.Length > 0) d.SelectedIndex = 0;
+            return d;
+        }
+
+        static void DarkScroll(Control c)
+        {
+            c.HandleCreated += (s, e) => { try { Theme.SetWindowTheme(c.Handle, "DarkMode_Explorer", null); } catch { } };
         }
 
         static Label Caption(string text)
@@ -270,17 +314,17 @@ namespace AutoShorts
                 var selected = combo.SelectedItem as ComboItem;
                 var selId = selected != null ? selected.Value as string : settings.DefaultChannelId;
                 combo.Items.Clear();
-                if (combo != reportChannelCombo) combo.Items.Add(new ComboItem("— не публікувати —", null));
+                if (combo != reportChannelCombo) combo.Items.Add(new ComboItem("не публікувати", null));
                 foreach (var ch in settings.Channels) combo.Items.Add(new ComboItem(ch.Title, ch.Id));
                 int idx = 0;
                 for (int i = 0; i < combo.Items.Count; i++)
                     if (((ComboItem)combo.Items[i]).Value as string == selId) idx = i;
-                if (combo == reportChannelCombo && selId == null && combo.Items.Count > 0) idx = 0;
-                if (combo.Items.Count > 0) combo.SelectedIndex = Math.Min(idx, combo.Items.Count - 1);
+                combo.SelectedIndex = combo.Items.Count > 0 ? Math.Min(idx, combo.Items.Count - 1) : -1;
+                combo.Relayout();
             }
         }
 
-        static string SelectedId(ComboBox c)
+        static string SelectedId(Dropdown c)
         {
             var it = c.SelectedItem as ComboItem;
             return it == null ? null : it.Value as string;

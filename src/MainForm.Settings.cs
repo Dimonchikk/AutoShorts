@@ -8,9 +8,9 @@ namespace AutoShorts
     public partial class MainForm
     {
         TextBox clientIdBox, clientSecretBox, outputBox, titleTplBox, descTplBox, tagsTplBox;
-        NumericUpDown minNum, maxNum, defClipsNum;
-        ComboBox defStyleCombo;
-        CheckBox faceCheck, hookCheck, coverCheck;
+        Stepper minNum, maxNum, defClipsNum;
+        Dropdown defStyleCombo;
+        Toggle faceCheck, hookCheck, coverCheck;
 
         Page BuildSettingsTab()
         {
@@ -63,12 +63,14 @@ namespace AutoShorts
             titleTplBox = new TextBox { Text = settings.TitleTemplate };
             descTplBox = new TextBox { Text = settings.DescriptionTemplate, Multiline = true, ScrollBars = ScrollBars.Vertical };
             tagsTplBox = new TextBox { Text = settings.TagsTemplate };
-            minNum = new NumericUpDown { Minimum = 10, Maximum = 170, Value = Math.Max(10, Math.Min(170, settings.MinSeconds)), Width = 70 };
-            maxNum = new NumericUpDown { Minimum = 15, Maximum = 180, Value = Math.Max(15, Math.Min(180, settings.MaxSeconds)), Width = 70 };
-            defClipsNum = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Math.Max(1, Math.Min(20, settings.ClipsPerVideo)), Width = 70 };
-            defStyleCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+            minNum = new Stepper(110) { Minimum = 10, Maximum = 170, Value = Math.Max(10, Math.Min(170, settings.MinSeconds)) };
+            maxNum = new Stepper(110) { Minimum = 15, Maximum = 180, Value = Math.Max(15, Math.Min(180, settings.MaxSeconds)) };
+            defClipsNum = new Stepper(110) { Minimum = 1, Maximum = 20, Value = Math.Max(1, Math.Min(20, settings.ClipsPerVideo)) };
+            defStyleCombo = Dd(null);
+            defStyleCombo.ItemImage = o => StylePreview.Get(SubtitleStyles.Get(o as string), (int)(120 * Theme.Dpi), (int)(44 * Theme.Dpi));
             foreach (var st in SubtitleStyles.All) defStyleCombo.Items.Add(st.Name);
             defStyleCombo.SelectedItem = settings.SubtitleStyle;
+            defStyleCombo.Relayout();
             faceCheck = new Toggle("Кадрувати за обличчям (вбудований детектор Windows)" + (FaceFrame.Available ? "" : " — недоступно на цьому ПК")) { Checked = settings.FaceFraming };
             hookCheck = new Toggle("Показувати заголовок-гачок перші 3 секунди") { Checked = settings.HookTitle };
             coverCheck = new Toggle("Ставити обкладинку (найяскравіший кадр + назва)") { Checked = settings.UploadCover };
@@ -110,7 +112,7 @@ namespace AutoShorts
             addWide(proc, hookCheck);
             addWide(proc, coverCheck);
 
-            var link = new LinkLabel { Text = "Сторінка програми", AutoSize = true, LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed, LinkBehavior = LinkBehavior.HoverUnderline };
+            var link = new LinkLabel { Text = "Сторінка програми", AutoSize = true, LinkColor = Theme.Accent, BackColor = Theme.Bg, ActiveLinkColor = Theme.AccentPressed, LinkBehavior = LinkBehavior.HoverUnderline };
             link.LinkClicked += (s, e) => OpenUrl("https://github.com/" + AppVersion.Repo);
             var footer = Row(Btn("Зберегти налаштування", (s, e) => SaveSettings(), ButtonKind.Primary, Glyphs.Save),
                              Lbl("AutoShorts " + AppVersion.Text), link);
@@ -118,8 +120,7 @@ namespace AutoShorts
             outer.Controls.Add(footer, 0, outer.RowStyles.Count - 1);
             outer.RowCount = outer.RowStyles.Count;
 
-            var scroll = new Panel { AutoScroll = true };
-            scroll.Controls.Add(outer);
+            var scroll = new ScrollHost(outer);
             return new Page("Налаштування", "Вхід Google, шаблони текстів і параметри нарізки", scroll);
         }
 
@@ -143,8 +144,7 @@ namespace AutoShorts
             {
                 Directory.CreateDirectory(settings.OutputFolder);
                 settings.Save();
-                clipsNum.Value = settings.ClipsPerVideo;
-                styleCombo.SelectedItem = settings.SubtitleStyle;
+                settings.Recipe.Hook = settings.HookTitle;
                 Log("Налаштування збережено.");
                 MessageBox.Show("Збережено.", "AutoShorts", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }

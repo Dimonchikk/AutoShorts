@@ -111,5 +111,48 @@ namespace AutoShorts
         {
             return string.Join(" ", words.Select(w => w.Text));
         }
+
+        /// <summary>Субтитри з файлу .srt/.vtt поруч із локальним відео. Час слів розподіляється рівномірно в межах репліки.</summary>
+        public static List<Word> FromSidecar(string videoPath)
+        {
+            try
+            {
+                var dir = System.IO.Path.GetDirectoryName(videoPath);
+                var name = System.IO.Path.GetFileNameWithoutExtension(videoPath);
+                foreach (var ext in new[] { ".srt", ".vtt" })
+                {
+                    var cand = System.IO.Directory.GetFiles(dir, name + "*" + ext).OrderBy(f => f.Length).FirstOrDefault();
+                    if (cand != null) return ParseSrtFile(cand);
+                }
+            }
+            catch { }
+            return new List<Word>();
+        }
+
+        public static List<Word> ParseSrtFile(string file)
+        {
+            var res = new List<Word>();
+            try
+            {
+                var text = System.IO.File.ReadAllText(file);
+                var rx = new Regex(@"(\d+):(\d{2}):(\d{2})[\.,](\d{3})\s*-->\s*(\d+):(\d{2}):(\d{2})[\.,](\d{3})[^\n]*\n([\s\S]*?)(?:\r?\n\s*\r?\n|$)");
+                foreach (Match m in rx.Matches(text.Replace("\r", "")))
+                {
+                    double a = T(m, 1), b = T(m, 5);
+                    var line = Regex.Replace(m.Groups[9].Value, "<[^>]+>", " ");
+                    var ws = line.Split(new[] { ' ', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Select(Clean).Where(w => w.Length > 0).ToList();
+                    if (ws.Count == 0 || b <= a) continue;
+                    double step = (b - a) / ws.Count;
+                    for (int i = 0; i < ws.Count; i++) res.Add(new Word(a + i * step, a + (i + 1) * step, ws[i]));
+                }
+            }
+            catch { }
+            return res;
+        }
+
+        static double T(Match m, int g)
+        {
+            return int.Parse(m.Groups[g].Value) * 3600 + int.Parse(m.Groups[g + 1].Value) * 60 + int.Parse(m.Groups[g + 2].Value) + int.Parse(m.Groups[g + 3].Value) / 1000.0;
+        }
     }
 }
