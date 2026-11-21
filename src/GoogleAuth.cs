@@ -66,41 +66,43 @@ namespace AutoShorts
 
                 string code = null;
                 var deadline = DateTime.UtcNow.AddMinutes(5);
-                while (code == null)
+                Task<TcpClient> acceptTask = null;
+                var result = new TaskCompletionSource<Tuple<string, string>>();
+                try
                 {
-                    var acceptTask = listener.AcceptTcpClientAsync();
-                    var done = await Task.WhenAny(acceptTask, Task.Delay(TimeSpan.FromSeconds(1), ct));
-                    if (ct.IsCancellationRequested) throw new OperationCanceledException();
-                    if (DateTime.UtcNow > deadline) throw new Exception("Час на вхід вичерпано. Спробуйте ще раз.");
-                    if (done != acceptTask) { WaitAndDiscard(acceptTask); continue; }
-                    using (var client = acceptTask.Result)
+                    while (!result.Task.IsCompleted)
                     {
-                        var stream = client.GetStream();
-                        var reader = new StreamReader(stream, Encoding.ASCII);
-                        var requestLine = reader.ReadLine() ?? "";
-                        string line;
-                        while (!string.IsNullOrEmpty(line = reader.ReadLine())) { }
-                        var parts = requestLine.Split(' ');
-                        var query = parts.Length > 1 && parts[1].Contains("?") ? parts[1].Substring(parts[1].IndexOf('?') + 1) : "";
-                        var q = ParseQuery(query);
-                        string html;
-                        string err;
-                        if (q.TryGetValue("error", out err))
+                        // одне очікування з’єднання за раз; кожне з’єднання обробляється паралельно у фоні
+                        if (acceptTask == null) acceptTask = listener.AcceptTcpClientAsync();
+                        var done = await Task.WhenAny(acceptTask, result.Task, Task.Delay(TimeSpan.FromSeconds(1)));
+                        if (ct.IsCancellationRequested) throw new OperationCanceledException();
+                        if (done == acceptTask)
                         {
-                            html = Page("Вхід скасовано", "Можна закрити цю вкладку.");
-                            Respond(stream, html);
-                            throw new Exception("Google повернув помилку: " + err);
+                            TcpClient client = null;
+                            try { client = acceptTask.Result; } catch { }
+                            acceptTask = null;
+                            if (client != null)
+                            {
+                                var c0 = client;
+                                Task.Run(() =>
+                                {
+                                    var r = HandleCallback(c0, state);
+                                    if (r.Item1 != null || r.Item2 != null) result.TrySetResult(r);
+                                });
+                            }
                         }
-                        string c, st;
-                        if (q.TryGetValue("code", out c) && q.TryGetValue("state", out st) && st == state)
-                        {
-                            code = c;
-                            html = Page("Готово ✔", "Вхід виконано. Поверніться в AutoShorts — цю вкладку можна закрити.");
-                        }
-                        else html = Page("AutoShorts", "Очікую на вхід…");
-                        Respond(stream, html);
+                        else if (done != result.Task && DateTime.UtcNow > deadline)
+                            throw new Exception("Час на вхід вичерпано. Спробуйте ще раз.");
                     }
                 }
+                finally
+                {
+                    if (acceptTask != null) WaitAndDiscard(acceptTask);
+                }
+                var res = result.Task.Result;
+                if (res.Item2 != null)
+                    throw new Exception(res.Item2 == "access_denied" ? "Вхід скасовано або доступ не надано." : "Google повернув помилку: " + res.Item2);
+                code = res.Item1;
 
                 var form = new Dictionary<string, string>();
                 form["code"] = code;
@@ -125,6 +127,52 @@ namespace AutoShorts
             finally
             {
                 listener.Stop();
+            }
+        }
+
+        // Читає один HTTP-запит на 127.0.0.1 і відповідає сторінкою. Повертає (code, error).
+        static Tuple<string, string> HandleCallback(TcpClient client, string state)
+        {
+            try
+            {
+                client.ReceiveTimeout = 4000;
+                client.SendTimeout = 4000;
+                var stream = client.GetStream();
+                var reader = new StreamReader(stream, Encoding.ASCII);
+                string requestLine;
+                try { requestLine = reader.ReadLine() ?? ""; } catch { return Tuple.Create<string, string>(null, null); }
+                if (requestLine.Length == 0) return Tuple.Create<string, string>(null, null);
+                string line;
+                try { while (!string.IsNullOrEmpty(line = reader.ReadLine())) { } } catch { }
+                var parts = requestLine.Split(' ');
+                var path = parts.Length > 1 ? parts[1] : "/";
+                if (path.StartsWith("/favicon"))
+                {
+                    var nf = Encoding.ASCII.GetBytes("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    stream.Write(nf, 0, nf.Length);
+                    return Tuple.Create<string, string>(null, null);
+                }
+                var query = path.Contains("?") ? path.Substring(path.IndexOf('?') + 1) : "";
+                var q = ParseQuery(query);
+                string err, c, st;
+                if (q.TryGetValue("error", out err))
+                {
+                    Respond(stream, Page("Вхід скасовано", "Можна закрити цю вкладку й повернутися в AutoShorts."));
+                    return Tuple.Create<string, string>(null, err);
+                }
+                if (q.TryGetValue("code", out c) && q.TryGetValue("state", out st) && st == state)
+                {
+                    Respond(stream, Page("Готово ✔", "Вхід виконано. Поверніться в AutoShorts — цю вкладку можна закрити."));
+                    return Tuple.Create<string, string>(c, null);
+                }
+                Respond(stream, Page("AutoShorts", "Очікую на вхід…"));
+                return Tuple.Create<string, string>(null, null);
+            }
+            catch { return Tuple.Create<string, string>(null, null); }
+            finally
+            {
+                try { client.Client.Shutdown(SocketShutdown.Send); } catch { }
+                try { client.Close(); } catch { }
             }
         }
 
