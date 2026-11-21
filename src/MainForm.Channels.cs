@@ -18,30 +18,37 @@ namespace AutoShorts
         ComboBox reportChannelCombo;
         ListView reportList;
         Label reportSummary;
+        StatTile statShorts, statLive, statViews, statAvg, statHour;
 
-        TabPage BuildChannelsTab()
+        Page BuildChannelsTab()
         {
-            var page = new TabPage("3. Канали");
-            channelList = List("Канал", 260, "ID", 220, "Шортсів/день", 100, "Найкращий час (Київ)", 330, "Оновлено", 120);
+            var lv = List("Канал", 240, "ID", 220, "Шортсів/день", 110, "Найкращий час (Київ)", 320, "Оновлено", 130);
+            lv.MutedColumn = 1;
+            lv.EmptyText = "Каналів ще немає — натисніть «Додати канал»";
+            channelList = lv;
             channelList.SelectedIndexChanged += (s, e) =>
             {
                 var ch = SelectedChannel();
                 if (ch != null) perDayNum.Value = Math.Max(1, Math.Min(12, ch.ShortsPerDay));
             };
-            perDayNum = new NumericUpDown { Minimum = 1, Maximum = 12, Value = 2, Width = 55 };
-            channelHint = new Label
-            {
-                AutoSize = true, ForeColor = Color.DimGray, MaximumSize = new Size(1000, 0),
-                Text = "Кожен канал входить через свій Google-акаунт. Найкращий час рахується з переглядів ваших відео за перші 48 годин " +
-                       "залежно від дня й години публікації. Якщо даних мало — 17:00–22:00 за Києвом, найсильніші пт і нд."
-            };
-            page.Controls.Add(Stack(
-                Row(Btn("＋ Додати канал (вхід Google)", (s, e) => AddChannel()), Btn("↻ Перерахувати найкращий час", (s, e) => RecalcChannel()),
-                    Lbl("Шортсів на день:"), perDayNum, Btn("Зберегти", (s, e) => SavePerDay()), Btn("✕ Видалити канал", (s, e) => RemoveChannel()),
-                    Btn("❔ Як підключити YouTube", (s, e) => ShowGuide())), 0,
-                channelHint, 0,
+            perDayNum = new NumericUpDown { Minimum = 1, Maximum = 12, Value = 2, Width = 58 };
+            channelHint = Hint("Кожен канал входить через свій Google-акаунт. Найкращий час рахується з переглядів ваших відео за перші 48 годин " +
+                               "залежно від дня й години публікації. Якщо даних мало — 17:00–22:00 за Києвом, найсильніші пт і нд.");
+
+            var actions = CardOf(Stack(
+                Row(Btn("Додати канал", (s, e) => AddChannel(), ButtonKind.Primary, Glyphs.Add),
+                    Btn("Перерахувати найкращий час", (s, e) => RecalcChannel(), ButtonKind.Secondary, Glyphs.Calendar),
+                    Btn("Видалити", (s, e) => RemoveChannel(), ButtonKind.Danger, Glyphs.Delete),
+                    Btn("Як підключити YouTube", (s, e) => ShowGuide(), ButtonKind.Plain, Glyphs.Help)), 0,
+                channelHint, 0));
+
+            var list = CardOf(Stack(
+                Header("Підключені канали", Lbl("Шортсів на день"), perDayNum, Btn("Зберегти", (s, e) => SavePerDay(), ButtonKind.Secondary, Glyphs.Save)), 0,
                 channelList, 100));
-            return page;
+            list.Margin = new Padding(0);
+
+            return new Page("Канали", "Підключіть YouTube-канали й задайте, скільки шортсів на день публікувати",
+                Stack(actions, 0, list, 100));
         }
 
         ChannelInfo SelectedChannel()
@@ -71,15 +78,20 @@ namespace AutoShorts
 
         void ShowGuide()
         {
-            using (var f = new Form { Text = "Як підключити YouTube", Size = new Size(820, 640), StartPosition = FormStartPosition.CenterParent, Font = Font })
+            using (var f = new Form { Text = "Як підключити YouTube", Size = new Size(840, 660), StartPosition = FormStartPosition.CenterParent, Font = Font, BackColor = Theme.Bg, ShowInTaskbar = false })
             {
-                var tb = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical, Text = Guide.Text, Font = new Font("Segoe UI", 10F), BackColor = SystemColors.Window };
-                var bar = Row(Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl)),
-                              Btn("Форма аудиту YouTube API", (s, e) => OpenUrl("https://support.google.com/youtube/contact/yt_api_form")),
-                              Btn("Закрити", (s, e) => f.Close()));
-                bar.Dock = DockStyle.Bottom;
-                f.Controls.Add(tb);
-                f.Controls.Add(bar);
+                f.HandleCreated += (s, e) => Theme.StyleWindow(f);
+                var tb = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Text = Guide.Text, Font = Theme.F(10.5F), BorderStyle = BorderStyle.None, BackColor = Color.White, ForeColor = Theme.Text };
+                var card = CardOf(tb);
+                card.Margin = new Padding(0);
+                var bar = Row(Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl), ButtonKind.Primary, Glyphs.Link),
+                              Btn("Форма аудиту YouTube API", (s, e) => OpenUrl("https://support.google.com/youtube/contact/yt_api_form"), ButtonKind.Secondary),
+                              Btn("Закрити", (s, e) => f.Close(), ButtonKind.Plain));
+                bar.Margin = new Padding(0, 12, 0, 0);
+                var body = Stack(card, 100, bar, 0);
+                var host = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20) };
+                host.Controls.Add(body);
+                f.Controls.Add(host);
                 f.ShowDialog(this);
             }
         }
@@ -90,7 +102,7 @@ namespace AutoShorts
             {
                 if (MessageBox.Show("Спершу потрібен Client ID від Google (робиться один раз). Показати інструкцію?", "AutoShorts",
                         MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes) ShowGuide();
-                tabs.SelectedIndex = 4;
+                ShowPage(4);
                 return;
             }
             try
@@ -165,30 +177,46 @@ namespace AutoShorts
 
         // ---------- звіт ----------
 
-        TabPage BuildReportTab()
+        Page BuildReportTab()
         {
-            var page = new TabPage("4. Звіт");
-            reportChannelCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
-            reportList = List("Назва", 420, "Публікація (Київ)", 140, "Перегляди", 90, "Лайки", 70, "Коментарі", 85, "Статус", 90);
+            reportChannelCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 230 };
+            var lv = List("Назва", 400, "Публікація (Київ)", 150, "Перегляди", 100, "Лайки", 80, "Коментарі", 95, "Статус", 100);
+            lv.MutedColumn = 1;
+            lv.EmptyText = "Оберіть канал і натисніть «Оновити статистику»";
+            reportList = lv;
             reportList.DoubleClick += (s, e) =>
             {
                 if (reportList.SelectedItems.Count > 0) OpenUrl("https://youtube.com/shorts/" + reportList.SelectedItems[0].Tag);
             };
-            reportSummary = new Label { AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(3, 8, 3, 8), MaximumSize = new Size(1100, 0) };
-            page.Controls.Add(Stack(
-                Row(Lbl("Канал:"), reportChannelCombo, Btn("↻ Оновити статистику", (s, e) => LoadReport())), 0,
-                reportSummary, 0,
-                reportList, 100));
-            return page;
+            reportSummary = new Label { AutoSize = true, ForeColor = Theme.Secondary, Margin = new Padding(12, 3, 3, 3), MaximumSize = new Size(700, 0) };
+            statShorts = new StatTile("Шортсів");
+            statLive = new StatTile("Уже вийшло");
+            statViews = new StatTile("Переглядів");
+            statAvg = new StatTile("У середньому");
+            statHour = new StatTile("Найкраща година");
+            var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0) };
+            tiles.Controls.AddRange(new Control[] { statShorts, statLive, statViews, statAvg, statHour });
+
+            var top = CardOf(Row(Lbl("Канал"), reportChannelCombo,
+                Btn("Оновити статистику", (s, e) => LoadReport(), ButtonKind.Primary, Glyphs.Refresh), reportSummary));
+            var list = CardOf(Stack(Section("Шортси"), 0, reportList, 100));
+            list.Margin = new Padding(0);
+            return new Page("Звіт", "Перегляди, лайки й коментарі шортсів, опублікованих через AutoShorts",
+                Stack(top, 0, tiles, 0, list, 100));
+        }
+
+        void SetTiles(string shorts, string live, string views, string avg, string hour)
+        {
+            statShorts.Set(shorts); statLive.Set(live); statViews.Set(views); statAvg.Set(avg); statHour.Set(hour);
         }
 
         async void LoadReport()
         {
             var id = SelectedId(reportChannelCombo);
             var ch = id == null ? null : settings.FindChannel(id);
-            if (ch == null) { reportSummary.Text = "Оберіть канал."; return; }
+            if (ch == null) { reportSummary.Text = "Оберіть канал."; SetTiles(null, null, null, null, null); return; }
             var mine = settings.Published.Where(p => p.ChannelId == ch.Id).ToList();
-            if (mine.Count == 0) { reportSummary.Text = "Ще немає шортсів, опублікованих через AutoShorts на цьому каналі."; reportList.Items.Clear(); return; }
+            if (mine.Count == 0) { reportSummary.Text = "Ще немає шортсів, опублікованих через AutoShorts на цьому каналі."; reportList.Items.Clear(); SetTiles("0", null, null, null, null); return; }
             reportSummary.Text = "Завантажую…";
             try
             {
@@ -223,9 +251,10 @@ namespace AutoShorts
                 }
                 reportList.EndUpdate();
                 var bestHour = byHour.OrderByDescending(kv => kv.Value.Average()).Select(kv => kv.Key).Cast<int?>().FirstOrDefault();
-                reportSummary.Text = "Шортсів: " + mine.Count + " (вийшло: " + live + ") · переглядів: " + total.ToString("N0") +
-                                     " · в середньому: " + (live > 0 ? (total / live).ToString("N0") : "—") +
-                                     (bestHour.HasValue ? " · найкраща година публікації: " + bestHour.Value.ToString("00") + ":00" : "");
+                reportSummary.Text = "Оновлено о " + DateTime.Now.ToString("HH:mm");
+                SetTiles(mine.Count.ToString("N0"), live.ToString("N0"), total.ToString("N0"),
+                    live > 0 ? (total / live).ToString("N0") : null,
+                    bestHour.HasValue ? bestHour.Value.ToString("00") + ":00" : null);
             }
             catch (Exception ex)
             {

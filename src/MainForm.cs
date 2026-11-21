@@ -26,7 +26,8 @@ namespace AutoShorts
         CancellationTokenSource cts;
         bool running, publishing;
 
-        TabControl tabs;
+        SideNav nav;
+        readonly List<Page> pages = new List<Page>();
         LinkLabel updateLink;
         System.Windows.Forms.Timer updateTimer;
 
@@ -39,35 +40,52 @@ namespace AutoShorts
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            Font = new Font("Segoe UI", 9.75F);
-            Text = "AutoShorts " + AppVersion.Text + " — нарізка відео у шортси";
-            MinimumSize = new Size(980, 680);
-            Size = new Size(1180, 800);
+            Font = Theme.F(9.75F);
+            BackColor = Theme.Bg;
+            ForeColor = Theme.Text;
+            Text = "AutoShorts";
+            MinimumSize = new Size(1060, 700);
+            Size = new Size(1260, 830);
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            tabs = new TabControl { Dock = DockStyle.Fill, Padding = new Point(14, 5) };
-            tabs.TabPages.Add(BuildQueueTab());
-            tabs.TabPages.Add(BuildClipsTab());
-            tabs.TabPages.Add(BuildChannelsTab());
-            tabs.TabPages.Add(BuildReportTab());
-            tabs.TabPages.Add(BuildSettingsTab());
-            Controls.Add(tabs);
+            nav = new SideNav { Dock = DockStyle.Left, Width = 236, Subtitle = "Версія " + AppVersion.Text };
+            nav.Items.Add(new SideNav.Item(Glyphs.Download, "Черга"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Video, "Кліпи"));
+            nav.Items.Add(new SideNav.Item(Glyphs.People, "Канали"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Chart, "Звіт"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Settings, "Налаштування"));
+            nav.SelectedChanged += (s, e) => ShowPage(nav.SelectedIndex);
+
+            pages.Add(BuildQueueTab());
+            pages.Add(BuildClipsTab());
+            pages.Add(BuildChannelsTab());
+            pages.Add(BuildReportTab());
+            pages.Add(BuildSettingsTab());
+
+            var content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
+            foreach (var p in pages) { p.Visible = false; content.Controls.Add(p); }
 
             updateLink = new LinkLabel
             {
-                Dock = DockStyle.Top, Visible = false, Height = 30, TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = Color.FromArgb(255, 159, 10), LinkColor = Color.Black, ActiveLinkColor = Color.Black,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+                Dock = DockStyle.Top, Visible = false, Height = 38, TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Theme.AccentSoft, LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed,
+                LinkBehavior = LinkBehavior.HoverUnderline, Font = Theme.Semi(10F)
             };
             updateLink.LinkClicked += (s, e) => OpenUrl(updateLink.Tag as string ?? Updates.ReleasesUrl);
-            Controls.Add(updateLink);
+            content.Controls.Add(updateLink);
+
+            Controls.Add(content);
+            Controls.Add(nav);
+            ShowPage(0);
             ResumeLayout(false);
+            HandleCreated += (s, e) => Theme.StyleWindow(this);
 
             RefreshChannelCombos();
             RefreshJobs();
             RefreshClips();
             RefreshChannels();
+            UpdateNav();
 
             Shown += async (s, e) =>
             {
@@ -82,11 +100,32 @@ namespace AutoShorts
             FormClosing += OnClosing;
         }
 
+        void ShowPage(int index)
+        {
+            SuspendLayout();
+            for (int i = 0; i < pages.Count; i++) pages[i].Visible = i == index;
+            ResumeLayout(true);
+            if (nav.SelectedIndex != index) nav.SelectedIndex = index;
+        }
+
+        void UpdateNav()
+        {
+            if (nav == null) return;
+            int pending = jobs.Count(j => !j.Done && j.Error == null);
+            int unpublished = jobs.Sum(j => j.Clips.Count(c => !c.Published && c.VideoPath != null));
+            nav.Items[0].Badge = pending > 0 ? pending.ToString() : null;
+            nav.Items[1].Badge = unpublished > 0 ? unpublished.ToString() : null;
+            var cur = running ? jobs.FirstOrDefault(j => !j.Done && j.Error == null) : null;
+            nav.Busy = running || publishing;
+            nav.Status = publishing ? "Публікую на YouTube…" : running ? (cur != null ? "Обробка · " + cur.Progress + "%" : "Обробка…") : "Готово до роботи";
+            nav.Invalidate();
+        }
+
         async Task CheckUpdatesAsync()
         {
             var u = await Updates.CheckAsync();
             if (u == null) return;
-            updateLink.Text = "🔄 Доступна нова версія AutoShorts v" + u.Item1 + " — натисніть, щоб завантажити";
+            updateLink.Text = "Доступна нова версія AutoShorts " + u.Item1 + "  ·  Завантажити";
             updateLink.Tag = u.Item2;
             updateLink.Visible = true;
         }
@@ -106,35 +145,81 @@ namespace AutoShorts
 
         // ---------- спільні помічники ----------
 
-        static Button Btn(string text, EventHandler click)
+        static AButton Btn(string text, EventHandler click, ButtonKind kind = ButtonKind.Secondary, string glyph = null)
         {
-            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(8, 3, 8, 3), Margin = new Padding(3) };
+            var b = new AButton(text, kind) { Glyph = glyph };
             b.Click += click;
             return b;
         }
 
         static Label Lbl(string text)
         {
-            return new Label { Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(6, 9, 3, 3) };
+            return new Label { Text = text, AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = Theme.Secondary, Margin = new Padding(8, 9, 2, 3) };
+        }
+
+        static Label Section(string text)
+        {
+            return new Label { Text = text, AutoSize = true, Anchor = AnchorStyles.Left, Font = Theme.Semi(11F), ForeColor = Theme.Text, Margin = new Padding(3, 3, 3, 8) };
+        }
+
+        static Label Caption(string text)
+        {
+            return new Label { Text = text, AutoSize = true, Font = Theme.F(9F), ForeColor = Theme.Secondary, Margin = new Padding(4, 10, 3, 2) };
+        }
+
+        static Label Hint(string text)
+        {
+            return new Label { Text = text, AutoSize = true, ForeColor = Theme.Secondary, MaximumSize = new Size(1000, 0), Margin = new Padding(4, 6, 3, 3) };
         }
 
         static FlowLayoutPanel Row(params Control[] controls)
         {
             var p = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0) };
+            foreach (var c in controls)
+            {
+                c.Anchor = AnchorStyles.Left; // у рядку — по центру по вертикалі
+                c.Margin = new Padding(c.Margin.Left, 3, c.Margin.Right, 3);
+            }
             p.Controls.AddRange(controls);
             return p;
         }
 
-        static ListView List(params object[] columns)
+        // Рядок: заголовок зліва, кнопки справа
+        static Control Header(string title, params Control[] right)
         {
-            var lv = new ListView { View = View.Details, FullRowSelect = true, HideSelection = false, Dock = DockStyle.Fill, GridLines = false };
-            for (int i = 0; i < columns.Length; i += 2) lv.Columns.Add((string)columns[i], (int)columns[i + 1]);
+            var t = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var l = Section(title);
+            l.Margin = new Padding(3, 3, 3, 3);
+            t.Controls.Add(l, 0, 0);
+            var f = Row(right);
+            f.WrapContents = false;
+            f.Dock = DockStyle.None;
+            f.Anchor = AnchorStyles.Right;
+            t.Controls.Add(f, 1, 0);
+            return t;
+        }
+
+        static Card CardOf(Control content)
+        {
+            var c = new Card { Dock = DockStyle.Fill };
+            content.Dock = DockStyle.Fill;
+            c.Controls.Add(content);
+            return c;
+        }
+
+        static AListView List(params object[] columns)
+        {
+            var lv = new AListView { Dock = DockStyle.Fill };
+            for (int i = 0; i < columns.Length; i += 2) lv.Columns.Add((string)columns[i], (int)((int)columns[i + 1] * Theme.Dpi));
             return lv;
         }
 
         static TableLayoutPanel Stack(params object[] rows)
         {
-            var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(8) };
+            var t = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(0), Margin = new Padding(0) };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             for (int i = 0; i < rows.Length; i += 2)
             {
@@ -174,7 +259,7 @@ namespace AutoShorts
 
         void OnJobChanged(Job job)
         {
-            Ui(() => { UpdateJobRow(job); UpdateClipRows(job); });
+            Ui(() => { UpdateJobRow(job); UpdateClipRows(job); UpdateNav(); });
         }
 
         void RefreshChannelCombos()

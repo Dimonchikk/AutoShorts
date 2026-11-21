@@ -17,35 +17,50 @@ namespace AutoShorts
         NumericUpDown clipsNum;
         CheckBox autoPublishCheck;
         ListView jobList;
-        Button startBtn;
+        AButton startBtn;
 
-        TabPage BuildQueueTab()
+        Page BuildQueueTab()
         {
-            var page = new TabPage("1. Черга відео");
-            urlBox = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = 64, Font = new Font("Segoe UI", 10.5F) };
+            urlBox = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Font = Theme.F(10.5F) };
             channelCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
             styleCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
             foreach (var st in SubtitleStyles.All) styleCombo.Items.Add(st.Name);
             styleCombo.SelectedItem = settings.SubtitleStyle;
-            clipsNum = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Math.Min(20, settings.ClipsPerVideo), Width = 55 };
-            autoPublishCheck = new CheckBox { Text = "Публікувати одразу, без перегляду", AutoSize = true, Checked = !settings.RequirePreview, Margin = new Padding(10, 7, 3, 3) };
+            clipsNum = new NumericUpDown { Minimum = 1, Maximum = 20, Value = Math.Min(20, settings.ClipsPerVideo), Width = 58 };
+            autoPublishCheck = new Toggle("Публікувати одразу, без перегляду") { Checked = !settings.RequirePreview, Margin = new Padding(14, 3, 3, 3) };
 
-            jobList = List("Відео", 420, "Статус", 330, "Прогрес", 80, "Кліпів", 60, "Канал", 150);
+            var lv = List("Відео", 380, "Статус", 300, "Прогрес", 130, "Кліпів", 64, "Канал", 150);
+            lv.StatusColumn = 1; lv.ProgressColumn = 2; lv.MutedColumn = 3;
+            lv.EmptyText = "Черга порожня — вставте посилання вище";
+            jobList = lv;
             jobList.DoubleClick += (s, e) => { var j = SelectedJob(); if (j != null) OpenUrl(j.Url); };
 
-            startBtn = Btn("▶ Старт", (s, e) => StartStop());
-            startBtn.Font = new Font(Font, FontStyle.Bold);
-            logBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BackColor = Color.FromArgb(24, 24, 24), ForeColor = Color.Gainsboro, Font = new Font("Consolas", 9F) };
+            startBtn = Btn("Старт", (s, e) => StartStop(), ButtonKind.Primary, Glyphs.Play);
+            logBox = new TextBox
+            {
+                Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None,
+                BackColor = Color.White, ForeColor = Theme.Secondary, Font = Theme.Mono(9F)
+            };
 
-            page.Controls.Add(Stack(
-                Lbl("Вставте посилання на YouTube-відео (по одному на рядок) — програма сама знайде найцікавіші моменти:"), 0,
-                urlBox, 0,
-                Row(Btn("＋ Додати в чергу", (s, e) => AddLinks()), Lbl("Канал:"), channelCombo, Lbl("Кліпів:"), clipsNum, Lbl("Стиль субтитрів:"), styleCombo, autoPublishCheck), 0,
-                jobList, 60,
-                Row(startBtn, Btn("↻ Повторити", (s, e) => RetryJob()), Btn("✕ Видалити", (s, e) => RemoveJob()),
-                    Btn("Очистити готові", (s, e) => ClearDone()), Btn("📂 Папка з кліпами", (s, e) => OpenJobFolder())), 0,
-                logBox, 40));
-            return page;
+            var input = CardOf(Stack(
+                Section("Нові відео"), 0,
+                new Field(urlBox, 60, "https://youtube.com/watch?v=…   — по одному посиланню на рядок"), 0,
+                Row(Btn("Додати в чергу", (s, e) => AddLinks(), ButtonKind.Primary, Glyphs.Add),
+                    Lbl("Канал"), channelCombo, Lbl("Кліпів"), clipsNum, Lbl("Субтитри"), styleCombo, autoPublishCheck), 0));
+
+            var list = CardOf(Stack(
+                Header("Відео в черзі", startBtn,
+                    Btn("Повторити", (s, e) => RetryJob(), ButtonKind.Secondary, Glyphs.Refresh),
+                    Btn("Видалити", (s, e) => RemoveJob(), ButtonKind.Danger, Glyphs.Delete),
+                    Btn("Очистити готові", (s, e) => ClearDone(), ButtonKind.Secondary, Glyphs.Clear),
+                    Btn("Папка", (s, e) => OpenJobFolder(), ButtonKind.Plain, Glyphs.Folder)), 0,
+                jobList, 100));
+
+            var log = CardOf(Stack(Section("Журнал"), 0, logBox, 100));
+            log.Margin = new Padding(0);
+
+            return new Page("Черга", "Вставте посилання — AutoShorts сам знайде найцікавіші моменти й наріже шортси",
+                Stack(input, 0, list, 64, log, 36));
         }
 
         Job SelectedJob()
@@ -98,6 +113,7 @@ namespace AutoShorts
                 FillJobRow(it, j);
             }
             jobList.EndUpdate();
+            UpdateNav();
         }
 
         void FillJobRow(ListViewItem it, Job j)
@@ -108,7 +124,7 @@ namespace AutoShorts
             it.SubItems[2].Text = j.Progress + "%";
             it.SubItems[3].Text = j.Clips.Count > 0 ? j.Clips.Count.ToString() : "";
             it.SubItems[4].Text = ch == null ? "—" : ch.Title + (j.AutoPublish ? " (авто)" : "");
-            it.ForeColor = j.Error != null ? Color.Firebrick : j.Done ? Color.DarkGreen : SystemColors.WindowText;
+            it.ForeColor = j.Error != null ? Theme.Red : j.Done ? Theme.Green : j.Progress > 0 ? Theme.Accent : Theme.Tertiary;
         }
 
         void UpdateJobRow(Job j)
@@ -167,7 +183,9 @@ namespace AutoShorts
             }
             running = true;
             cts = new CancellationTokenSource();
-            startBtn.Text = "■ Стоп";
+            startBtn.Text = "Стоп";
+            startBtn.Glyph = Glyphs.Stop;
+            UpdateNav();
             var ct = cts.Token;
             try
             {
@@ -216,10 +234,12 @@ namespace AutoShorts
             finally
             {
                 running = false;
-                startBtn.Text = "▶ Старт";
+                startBtn.Text = "Старт";
+                startBtn.Glyph = Glyphs.Play;
                 startBtn.Enabled = true;
                 AppSettings.SaveJobs(jobs);
                 RefreshJobs();
+                UpdateNav();
             }
         }
     }

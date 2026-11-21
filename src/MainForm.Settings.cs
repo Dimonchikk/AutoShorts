@@ -12,27 +12,56 @@ namespace AutoShorts
         ComboBox defStyleCombo;
         CheckBox faceCheck, hookCheck, coverCheck;
 
-        TabPage BuildSettingsTab()
+        Page BuildSettingsTab()
         {
-            var page = new TabPage("5. Налаштування");
-            var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(10) };
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            var outer = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(0, 0, 14, 10) };
+            outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            Action<string, Control> add = (label, c) =>
+            Func<string, string, TableLayoutPanel> group = (title, note) =>
+            {
+                outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                var l = Section(title);
+                l.Margin = new Padding(4, 4, 3, 6);
+                outer.Controls.Add(l, 0, outer.RowStyles.Count - 1);
+                var g = new TableLayoutPanel { AutoSize = true, ColumnCount = 2, Margin = new Padding(0) };
+                g.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                g.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                var card = CardOf(g);
+                card.Margin = new Padding(0, 0, 0, note == null ? 18 : 4);
+                outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                outer.Controls.Add(card, 0, outer.RowStyles.Count - 1);
+                if (note != null)
+                {
+                    outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    var n = Hint(note);
+                    n.Margin = new Padding(6, 2, 3, 18);
+                    n.Font = Theme.F(9F);
+                    outer.Controls.Add(n, 0, outer.RowStyles.Count - 1);
+                }
+                return g;
+            };
+
+            Action<TableLayoutPanel, string, Control> add = (g, label, c) =>
             {
                 c.Dock = DockStyle.Fill;
-                c.Margin = new Padding(3, 4, 3, 4);
-                t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                t.Controls.Add(Lbl(label), 0, t.RowStyles.Count - 1);
-                t.Controls.Add(c, 1, t.RowStyles.Count - 1);
+                g.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = Theme.Text, Margin = new Padding(3, 4, 18, 4) };
+                g.Controls.Add(l, 0, g.RowStyles.Count - 1);
+                g.Controls.Add(c, 1, g.RowStyles.Count - 1);
+            };
+            Action<TableLayoutPanel, Control> addWide = (g, c) =>
+            {
+                c.Dock = DockStyle.Fill;
+                g.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                g.Controls.Add(c, 0, g.RowStyles.Count - 1);
+                g.SetColumnSpan(c, 2);
             };
 
             clientIdBox = new TextBox { Text = settings.ClientId ?? "" };
             clientSecretBox = new TextBox { Text = settings.ClientSecret ?? "", UseSystemPasswordChar = true };
             outputBox = new TextBox { Text = settings.OutputFolder };
             titleTplBox = new TextBox { Text = settings.TitleTemplate };
-            descTplBox = new TextBox { Text = settings.DescriptionTemplate, Multiline = true, Height = 90, ScrollBars = ScrollBars.Vertical };
+            descTplBox = new TextBox { Text = settings.DescriptionTemplate, Multiline = true, ScrollBars = ScrollBars.Vertical };
             tagsTplBox = new TextBox { Text = settings.TagsTemplate };
             minNum = new NumericUpDown { Minimum = 10, Maximum = 170, Value = Math.Max(10, Math.Min(170, settings.MinSeconds)), Width = 70 };
             maxNum = new NumericUpDown { Minimum = 15, Maximum = 180, Value = Math.Max(15, Math.Min(180, settings.MaxSeconds)), Width = 70 };
@@ -40,49 +69,58 @@ namespace AutoShorts
             defStyleCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
             foreach (var st in SubtitleStyles.All) defStyleCombo.Items.Add(st.Name);
             defStyleCombo.SelectedItem = settings.SubtitleStyle;
-            faceCheck = new CheckBox { Text = "Кадрувати за обличчям (вбудований детектор Windows)" + (FaceFrame.Available ? "" : " — недоступно на цьому ПК"), Checked = settings.FaceFraming, AutoSize = true };
-            hookCheck = new CheckBox { Text = "Показувати заголовок-гачок перші 3 секунди", Checked = settings.HookTitle, AutoSize = true };
-            coverCheck = new CheckBox { Text = "Ставити обкладинку (найяскравіший кадр + назва)", Checked = settings.UploadCover, AutoSize = true };
+            faceCheck = new Toggle("Кадрувати за обличчям (вбудований детектор Windows)" + (FaceFrame.Available ? "" : " — недоступно на цьому ПК")) { Checked = settings.FaceFraming };
+            hookCheck = new Toggle("Показувати заголовок-гачок перші 3 секунди") { Checked = settings.HookTitle };
+            coverCheck = new Toggle("Ставити обкладинку (найяскравіший кадр + назва)") { Checked = settings.UploadCover };
 
-            add("Google Client ID:", clientIdBox);
-            add("Google Client secret:", clientSecretBox);
-            add("", Row(Btn("❔ Як отримати (інструкція)", (s, e) => ShowGuide()), Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl))));
+            var yt = group("YouTube", "Client ID потрібен один раз — він дозволяє програмі входити у ваші канали. Ключі ШІ не потрібні.");
+            add(yt, "Client ID", new Field(clientIdBox, 0, "xxxxxxxx.apps.googleusercontent.com"));
+            add(yt, "Client secret", new Field(clientSecretBox, 0, null));
+            add(yt, "", Row(Btn("Як отримати", (s, e) => ShowGuide(), ButtonKind.Secondary, Glyphs.Help),
+                            Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl), ButtonKind.Plain, Glyphs.Link)));
+
+            var files = group("Файли", null);
             var browse = Btn("Огляд…", (s, e) =>
             {
                 using (var d = new FolderBrowserDialog { SelectedPath = outputBox.Text })
                     if (d.ShowDialog(this) == DialogResult.OK) outputBox.Text = d.SelectedPath;
-            });
+            }, ButtonKind.Secondary, Glyphs.Folder);
             var outRow = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Margin = new Padding(0) };
             outRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             outRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            outputBox.Dock = DockStyle.Fill;
-            outRow.Controls.Add(outputBox, 0, 0);
+            var outField = new Field(outputBox, 0, null) { Dock = DockStyle.Fill };
+            outRow.Controls.Add(outField, 0, 0);
+            browse.Anchor = AnchorStyles.Left;
             outRow.Controls.Add(browse, 1, 0);
-            add("Папка для кліпів:", outRow);
-            add("Шаблон назви:", titleTplBox);
-            add("Шаблон опису:", descTplBox);
-            add("Шаблон тегів:", tagsTplBox);
-            add("", new Label
-            {
-                AutoSize = true, ForeColor = Color.DimGray,
-                Text = "Змінні: {hook} — перше речення фрагмента, {source_title}, {source_channel}, {source_url}, {keywords}, {hashtags}, {source_tags}, {n}, {text}"
-            });
-            add("Довжина кліпу, с:", Row(Lbl("від"), minNum, Lbl("до"), maxNum));
-            add("Кліпів з одного відео:", Row(defClipsNum));
-            add("Стиль субтитрів:", Row(defStyleCombo));
-            add("", faceCheck);
-            add("", hookCheck);
-            add("", coverCheck);
-            var save = Btn("💾 Зберегти налаштування", (s, e) => SaveSettings());
-            save.Font = new Font(Font, FontStyle.Bold);
-            add("", Row(save, Lbl("Версія " + AppVersion.Text), new LinkLabel { Text = "Сторінка програми", AutoSize = true, Margin = new Padding(6, 9, 3, 3) }));
-            var link = (LinkLabel)((FlowLayoutPanel)t.Controls[t.Controls.Count - 1]).Controls[2];
-            link.LinkClicked += (s, e) => OpenUrl("https://github.com/" + AppVersion.Repo);
+            add(files, "Папка для кліпів", outRow);
 
-            var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-            scroll.Controls.Add(t);
-            page.Controls.Add(scroll);
-            return page;
+            var tpl = group("Шаблони публікації",
+                "Змінні: {hook} — перше речення фрагмента, {source_title}, {source_channel}, {source_url}, {keywords}, {hashtags}, {source_tags}, {n}, {text}");
+            add(tpl, "Назва", new Field(titleTplBox, 0, null));
+            add(tpl, "Опис", new Field(descTplBox, 86, null));
+            add(tpl, "Теги", new Field(tagsTplBox, 0, null));
+
+            var clips = group("Кліпи", null);
+            add(clips, "Довжина, с", Row(Lbl("від"), minNum, Lbl("до"), maxNum));
+            add(clips, "Кліпів з одного відео", Row(defClipsNum));
+            add(clips, "Стиль субтитрів", Row(defStyleCombo));
+
+            var proc = group("Обробка", null);
+            addWide(proc, faceCheck);
+            addWide(proc, hookCheck);
+            addWide(proc, coverCheck);
+
+            var link = new LinkLabel { Text = "Сторінка програми", AutoSize = true, LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed, LinkBehavior = LinkBehavior.HoverUnderline };
+            link.LinkClicked += (s, e) => OpenUrl("https://github.com/" + AppVersion.Repo);
+            var footer = Row(Btn("Зберегти налаштування", (s, e) => SaveSettings(), ButtonKind.Primary, Glyphs.Save),
+                             Lbl("AutoShorts " + AppVersion.Text), link);
+            outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            outer.Controls.Add(footer, 0, outer.RowStyles.Count - 1);
+            outer.RowCount = outer.RowStyles.Count;
+
+            var scroll = new Panel { AutoScroll = true };
+            scroll.Controls.Add(outer);
+            return new Page("Налаштування", "Вхід Google, шаблони текстів і параметри нарізки", scroll);
         }
 
         void SaveSettings()

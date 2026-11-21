@@ -13,62 +13,88 @@ namespace AutoShorts
     public partial class MainForm
     {
         ListView clipList;
-        PictureBox coverBox;
+        CoverView coverBox;
         TextBox titleBox, descBox, tagsBox, clipTextBox;
         NumericUpDown startNum, endNum;
         ComboBox publishChannelCombo;
         Label clipInfo, slotInfo;
-        Button publishBtn;
+        AButton publishBtn;
         bool loadingClip;
 
-        TabPage BuildClipsTab()
+        Page BuildClipsTab()
         {
-            var page = new TabPage("2. Кліпи (перегляд)");
-            clipList = List("Відео", 230, "№", 36, "Фрагмент", 110, "Назва", 330, "Статус", 190);
-            clipList.CheckBoxes = true;
+            var lv = List("Відео", 170, "№", 36, "Фрагмент", 100, "Назва", 250, "Статус", 150);
+            lv.CheckBoxes = true;
+            lv.StatusColumn = 4; lv.MutedColumn = 2;
+            lv.EmptyText = "Тут з’являться готові кліпи";
+            clipList = lv;
             clipList.SelectedIndexChanged += (s, e) => LoadClip();
             clipList.DoubleClick += (s, e) => PlayClip();
 
-            coverBox = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Black, Height = 300 };
+            coverBox = new CoverView { Height = 300 };
             coverBox.Click += (s, e) => PlayClip();
-            coverBox.Cursor = Cursors.Hand;
-            clipInfo = new Label { AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(3, 6, 3, 3) };
+            clipInfo = new Label { AutoSize = true, ForeColor = Theme.Secondary, MaximumSize = new Size(420, 0), Margin = new Padding(4, 8, 3, 3) };
             titleBox = new TextBox();
-            descBox = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical, Height = 90 };
+            descBox = new TextBox { Multiline = true, ScrollBars = ScrollBars.Vertical };
             tagsBox = new TextBox();
-            clipTextBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Height = 60, ForeColor = Color.DimGray };
+            clipTextBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, ForeColor = Theme.Secondary };
             startNum = new NumericUpDown { DecimalPlaces = 1, Increment = 0.5M, Maximum = 100000, Width = 85 };
             endNum = new NumericUpDown { DecimalPlaces = 1, Increment = 0.5M, Maximum = 100000, Width = 85 };
             foreach (var tb in new Control[] { titleBox, descBox, tagsBox })
                 tb.Leave += (s, e) => SaveClipText(false);
 
-            publishChannelCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+            publishChannelCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210 };
             publishChannelCombo.SelectedIndexChanged += (s, e) => UpdateSlotInfo();
-            publishBtn = Btn("🚀 Опублікувати позначені ✓", (s, e) => PublishChecked());
-            publishBtn.Font = new Font(Font, FontStyle.Bold);
-            slotInfo = new Label { AutoSize = true, ForeColor = Color.DarkGreen, Margin = new Padding(3, 6, 3, 3) };
+            publishBtn = Btn("Опублікувати позначені", (s, e) => PublishChecked(), ButtonKind.Primary, Glyphs.Upload);
+            slotInfo = new Label { AutoSize = true, ForeColor = Theme.Green, Margin = new Padding(10, 3, 3, 3) };
+
+            coverBox.Size = new Size(168, 298);
+            coverBox.Margin = new Padding(0, 0, 16, 0);
+            coverBox.Dock = DockStyle.None;
+            var side = Stack(
+                clipInfo, 0,
+                Row(Btn("Переглянути", (s, e) => PlayClip(), ButtonKind.Primary, Glyphs.Play),
+                    Btn("У папці", (s, e) => OpenClipFolder(), ButtonKind.Secondary, Glyphs.Folder)), 0,
+                Caption("Назва"), 0, new Field(titleBox, 0, "Назва для YouTube"), 0,
+                Caption("Теги (через кому)"), 0, new Field(tagsBox, 0, "шортс, відео, …"), 0);
+            side.AutoSize = true;
+            var top = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, 4) };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            top.Controls.Add(coverBox, 0, 0);
+            side.Dock = DockStyle.Top;
+            top.Controls.Add(side, 1, 0);
+            clipInfo.MaximumSize = new Size(260, 0);
+            clipInfo.Margin = new Padding(4, 0, 3, 3);
 
             var editor = Stack(
-                coverBox, 0,
-                clipInfo, 0,
-                Row(Btn("▶ Переглянути", (s, e) => PlayClip()), Btn("📂 Папка", (s, e) => OpenClipFolder())), 0,
-                Lbl("Назва:"), 0, titleBox, 0,
-                Lbl("Опис:"), 0, descBox, 0,
-                Lbl("Теги (через кому):"), 0, tagsBox, 0,
-                Row(Lbl("Початок, с:"), startNum, Lbl("Кінець, с:"), endNum, Btn("↻ Перерендерити", (s, e) => RerenderClip())), 0,
-                Lbl("Текст фрагмента:"), 0, clipTextBox, 100);
+                top, 0,
+                Caption("Опис"), 0, new Field(descBox, 70, null), 0,
+                Caption("Межі кліпу, секунди"), 0,
+                Row(Lbl("Початок"), startNum, Lbl("Кінець"), endNum,
+                    Btn("Перерендерити", (s, e) => RerenderClip(), ButtonKind.Secondary, Glyphs.Refresh)), 0,
+                Caption("Текст фрагмента"), 0, new Field(clipTextBox, 40, null), 100);
 
-            var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel2 };
-            split.Panel1.Controls.Add(clipList);
-            var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-            scroll.Controls.Add(editor);
-            split.Panel2.Controls.Add(scroll);
-            split.SizeChanged += (s, e) => { try { split.SplitterDistance = Math.Max(300, split.Width - 440); } catch { } };
+            var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel2, BackColor = Theme.Bg, SplitterWidth = 14, Margin = new Padding(0, 0, 0, 14) };
+            split.Panel1.BackColor = Theme.Bg;
+            split.Panel2.BackColor = Theme.Bg;
+            var listCard = CardOf(Stack(
+                Header("Кліпи",
+                    Btn("Позначити всі", (s, e) => CheckAll(true), ButtonKind.Plain, Glyphs.Check),
+                    Btn("Зняти всі", (s, e) => CheckAll(false), ButtonKind.Plain)), 0,
+                clipList, 100));
+            listCard.Margin = new Padding(0);
+            split.Panel1.Controls.Add(listCard);
+            var editCard = CardOf(editor);
+            editCard.Margin = new Padding(0);
+            split.Panel2.Controls.Add(editCard);
+            split.SizeChanged += (s, e) => { try { split.SplitterDistance = Math.Max(300, split.Width - (int)(470 * Theme.Dpi)); } catch { } };
 
-            page.Controls.Add(Stack(
-                split, 100,
-                Row(Lbl("Канал:"), publishChannelCombo, publishBtn, Btn("Позначити всі", (s, e) => CheckAll(true)), Btn("Зняти всі", (s, e) => CheckAll(false)), slotInfo), 0));
-            return page;
+            var bar = CardOf(Row(Lbl("Канал"), publishChannelCombo, publishBtn, slotInfo));
+            bar.Margin = new Padding(0);
+            return new Page("Кліпи", "Перегляньте, підправте й позначте кліпи — вони вийдуть у найкращий час каналу",
+                Stack(split, 100, bar, 0));
         }
 
         Tuple<Job, ClipItem> SelectedClip()
@@ -98,6 +124,7 @@ namespace AutoShorts
                 }
             clipList.EndUpdate();
             UpdateSlotInfo();
+            UpdateNav();
         }
 
         void FillClipRow(ListViewItem it)
@@ -109,7 +136,7 @@ namespace AutoShorts
             it.SubItems[2].Text = T(c.Start) + "–" + T(c.End);
             it.SubItems[3].Text = c.Title ?? "";
             it.SubItems[4].Text = c.Status ?? "";
-            it.ForeColor = c.Published ? Color.DarkGreen : (c.Status ?? "").StartsWith("Помилка") ? Color.Firebrick : SystemColors.WindowText;
+            it.ForeColor = c.Published ? Theme.Green : (c.Status ?? "").StartsWith("Помилка") ? Theme.Red : Theme.Accent;
         }
 
         void UpdateClipRows(Job j)
@@ -231,7 +258,7 @@ namespace AutoShorts
             var ch = id == null ? null : settings.FindChannel(id);
             if (ch == null) { slotInfo.Text = settings.Channels.Count == 0 ? "Додайте канал у вкладці «Канали»" : ""; return; }
             var next = BestTime.NextSlotUtc(ch, settings.Published.Where(p => p.ChannelId == ch.Id).Select(p => p.PublishAtUtc), DateTime.UtcNow);
-            slotInfo.Text = "Наступний слот (Київ): " + BestTime.Format(next);
+            slotInfo.Text = "Наступний слот: " + BestTime.Format(next) + " (Київ)";
         }
 
         async void PublishChecked()
@@ -247,6 +274,7 @@ namespace AutoShorts
                     "AutoShorts", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             publishing = true;
             publishBtn.Enabled = false;
+            UpdateNav();
             try
             {
                 foreach (var t in items)
@@ -270,6 +298,7 @@ namespace AutoShorts
                 publishing = false;
                 publishBtn.Enabled = true;
                 RefreshClips();
+                UpdateNav();
             }
         }
     }
