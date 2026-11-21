@@ -173,6 +173,7 @@ namespace AutoShorts
 
     static class Glyphs
     {
+        public const string Copy = "\uE8C8", Mail = "\uE715";
         public const string Download = "", Video = "", People = "", Chart = "", Settings = "",
             Add = "", Play = "", Stop = "", Refresh = "", Delete = "", Folder = "",
             Upload = "", Help = "", Save = "", Check = "", Clear = "", Calendar = "", Link = "",

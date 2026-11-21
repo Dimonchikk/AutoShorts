@@ -22,6 +22,7 @@ namespace AutoShorts
         public bool HookTitle { get; set; }
         public Recipe Recipe { get; set; }          // останні вибрані налаштування обробки
         public bool NavCollapsed { get; set; }
+        public string GoogleEmail { get; set; }
         public bool RequirePreview { get; set; }
         public bool UploadCover { get; set; }
         public string DefaultChannelId { get; set; }
