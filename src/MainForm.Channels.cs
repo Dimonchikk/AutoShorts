@@ -24,7 +24,7 @@ namespace AutoShorts
         {
             var lv = List("Канал", 240, "ID", 220, "Шортсів/день", 110, "Найкращий час (Київ)", 320, "Оновлено", 130);
             lv.MutedColumn = 1;
-            lv.EmptyText = "Каналів ще немає — натисніть «Додати канал»";
+            lv.EmptyText = "Каналів ще немає — натисніть «Увійти через Google»";
             channelList = lv;
             channelList.SelectedIndexChanged += (s, e) =>
             {
@@ -35,11 +35,24 @@ namespace AutoShorts
             channelHint = Hint("Кожен канал входить через свій Google-акаунт. Найкращий час рахується з переглядів ваших відео за перші 48 годин " +
                                "залежно від дня й години публікації. Якщо даних мало — 17:00–22:00 за Києвом, найсильніші пт і нд.");
 
+            var google = new GoogleButton("Увійти через Google");
+            google.Click += (s, e) => AddChannel();
+            var connectText = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
+            connectText.Controls.Add(new Label { Text = "Підключіть YouTube-канал", AutoSize = true, Font = Theme.Semi(12.5F), ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 4) });
+            connectText.Controls.Add(new Label { Text = "Натисніть кнопку, виберіть акаунт і канал, дозвольте доступ — і готово. Для кожного каналу — свій вхід.", AutoSize = true, ForeColor = Theme.Secondary, MaximumSize = new Size(560, 0), Margin = new Padding(0) });
+            var connect = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, 10) };
+            connect.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            connect.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            connect.Controls.Add(connectText, 0, 0);
+            google.Anchor = AnchorStyles.Right;
+            connect.Controls.Add(google, 1, 0);
+
             var actions = CardOf(Stack(
-                Row(Btn("Додати канал", (s, e) => AddChannel(), ButtonKind.Primary, Glyphs.Add),
-                    Btn("Перерахувати найкращий час", (s, e) => RecalcChannel(), ButtonKind.Secondary, Glyphs.Calendar),
-                    Btn("Видалити", (s, e) => RemoveChannel(), ButtonKind.Danger, Glyphs.Delete),
-                    Btn("Як підключити YouTube", (s, e) => ShowGuide(), ButtonKind.Plain, Glyphs.Help)), 0,
+                connect, 0,
+                Row(Btn("Перерахувати найкращий час", (s, e) => RecalcChannel(), ButtonKind.Secondary, Glyphs.Calendar),
+                    Btn("Видалити канал", (s, e) => RemoveChannel(), ButtonKind.Danger, Glyphs.Delete),
+                    Btn("Свій Google Client ID", (s, e) => ShowConnectWizard(), ButtonKind.Plain, Glyphs.Settings),
+                    Btn("Обмеження YouTube API", (s, e) => ShowGuide(), ButtonKind.Plain, Glyphs.Help)), 0,
                 channelHint, 0));
 
             var list = CardOf(Stack(

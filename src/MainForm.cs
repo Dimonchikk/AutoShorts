@@ -112,7 +112,7 @@ namespace AutoShorts
             {
                 Log("AutoShorts " + AppVersion.Text + " запущено. Обличчя: " + (FaceFrame.Available ? "детектор Windows доступний" : "недоступно (кадр по центру)"));
                 if (!settings.HasGoogleClient())
-                    Log("Щоб публікувати на YouTube, відкрийте «Канали» → «Додати канал» — майстер підключення проведе крок за кроком.");
+                    Log("Щоб публікувати на YouTube, відкрийте «Канали» → «Увійти через Google».");
                 LoadThumbsAsync();
                 if (jobs.Any(j => !j.Done && j.Error == null)) StartStop();
                 await CheckUpdatesAsync();

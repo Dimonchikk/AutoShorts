@@ -17,6 +17,7 @@ namespace AutoShorts
         public string AccessToken;
         public string RefreshToken;
         public DateTime ExpiresUtc;
+        public string Scope;
     }
 
     /// <summary>Вхід через Google (OAuth для десктопних програм, loopback + PKCE).</summary>
@@ -111,6 +112,13 @@ namespace AutoShorts
                 var tok = await PostTokenAsync(form);
                 if (string.IsNullOrEmpty(tok.RefreshToken))
                     throw new Exception("Google не видав refresh token. Видаліть доступ AutoShorts у myaccount.google.com/permissions і увійдіть знову.");
+                if (tok.Scope != null)
+                {
+                    if (!tok.Scope.Contains("youtube.upload"))
+                        throw new Exception("Ви не дали дозвіл «Керувати відео на YouTube» — без нього програма не зможе публікувати шортси.\r\n\r\nНатисніть «Увійти через Google» ще раз і у вікні Google поставте всі галочки (або «Вибрати все»).");
+                    if (!tok.Scope.Contains("youtube.readonly"))
+                        throw new Exception("Ви не дали дозвіл «Переглядати ваш обліковий запис YouTube» — без нього програма не дізнається назву каналу.\r\n\r\nНатисніть «Увійти через Google» ще раз і поставте всі галочки.");
+                }
                 lock (cache) cache[tok.RefreshToken] = tok;
                 return tok;
             }
@@ -127,9 +135,12 @@ namespace AutoShorts
 
         static string Page(string title, string text)
         {
-            return "<!doctype html><html><head><meta charset=\"utf-8\"><title>AutoShorts</title></head>" +
-                   "<body style=\"font-family:Segoe UI,Arial;background:#111;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0\">" +
-                   "<div style=\"text-align:center\"><h1 style=\"color:#2bff4a\">" + title + "</h1><p>" + text + "</p></div></body></html>";
+            return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>AutoShorts</title></head>" +
+                   "<body style=\"font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#f4f4f5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0\">" +
+                   "<div style=\"text-align:center;background:#1a1a1d;border:1px solid #2a2a2f;border-radius:24px;padding:48px 56px;max-width:440px\">" +
+                   "<div style=\"width:64px;height:64px;border-radius:18px;margin:0 auto 22px;background:linear-gradient(135deg,#bef264,#34d399);display:flex;align-items:center;justify-content:center\">" +
+                   "<div style=\"border-left:20px solid #0e0e10;border-top:12px solid transparent;border-bottom:12px solid transparent;margin-left:6px\"></div></div>" +
+                   "<h1 style=\"margin:0 0 10px;font-size:28px\">" + title + "</h1><p style=\"color:#a1a1aa;margin:0;font-size:16px\">" + text + "</p></div></body></html>";
         }
 
         static void Respond(Stream stream, string html)
@@ -166,6 +177,7 @@ namespace AutoShorts
             t.AccessToken = Json.Str(o, "access_token");
             t.RefreshToken = Json.Str(o, "refresh_token");
             t.ExpiresUtc = DateTime.UtcNow.AddSeconds(Json.Num(o, "expires_in", 3600) - 120);
+            t.Scope = Json.Str(o, "scope");
             return t;
         }
 

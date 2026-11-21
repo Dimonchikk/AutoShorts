@@ -1831,4 +1831,69 @@ namespace AutoShorts
 
         protected override void OnMouseUp(MouseEventArgs e) { drag = false; Invalidate(); }
     }
+
+    // Кнопка «Увійти через Google» (за правилами оформлення Google для темної теми)
+    class GoogleButton : Button
+    {
+        bool hover, down;
+        public float HeightFactor = 2.4f;
+
+        public GoogleButton(string text)
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            Text = text;
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            Cursor = Cursors.Hand;
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Margin = new Padding(3);
+        }
+
+        protected override bool ShowFocusCues { get { return false; } }
+        Font F2 { get { return Theme.Semi(Font.SizeInPoints * 1.05f); } }
+
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            int h = (int)(Font.Height * HeightFactor);
+            int tw = TextRenderer.MeasureText(Text, F2, Size.Empty, TextFormatFlags.NoPadding).Width;
+            return new Size(tw + h + Font.Height * 2, h);
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseDown(MouseEventArgs e) { down = true; Invalidate(); base.OnMouseDown(e); }
+        protected override void OnMouseUp(MouseEventArgs e) { down = false; Invalidate(); base.OnMouseUp(e); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+
+        public static void DrawG(Graphics g, RectangleF r)
+        {
+            float w = r.Width * 0.2f;
+            var c = new RectangleF(r.X + w / 2, r.Y + w / 2, r.Width - w, r.Height - w);
+            using (var p = new Pen(Color.FromArgb(234, 67, 53), w)) g.DrawArc(p, c, 213, 105);
+            using (var p = new Pen(Color.FromArgb(251, 188, 5), w)) g.DrawArc(p, c, 145, 70);
+            using (var p = new Pen(Color.FromArgb(52, 168, 83), w)) g.DrawArc(p, c, 42, 105);
+            using (var p = new Pen(Color.FromArgb(66, 133, 244), w)) g.DrawArc(p, c, -2, 46);
+            using (var b = new SolidBrush(Color.FromArgb(66, 133, 244)))
+                g.FillRectangle(b, r.X + r.Width / 2f, r.Y + r.Height / 2f - w / 2, r.Width / 2f, w);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(Theme.BackOf(this));
+            Theme.Smooth(g);
+            var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            var bg = down ? Color.FromArgb(48, 48, 52) : hover ? Color.FromArgb(38, 38, 42) : Color.FromArgb(19, 19, 20);
+            Theme.FillRound(g, bg, r, Height / 2f);
+            Theme.StrokeRound(g, Color.FromArgb(142, 145, 143), 1f, r, Height / 2f);
+            float gs = Height * 0.42f;
+            float gx = Height * 0.45f;
+            var gr = new RectangleF(gx, (Height - gs) / 2, gs, gs);
+            if (Enabled) DrawG(g, gr);
+            int tx = (int)(gx + gs + Font.Height * 0.7f);
+            TextRenderer.DrawText(g, Text, F2, new Rectangle(tx, 0, Width - tx - Font.Height, Height), Enabled ? Color.FromArgb(227, 227, 227) : Theme.Tertiary, Theme.LeftMid);
+        }
+    }
 }

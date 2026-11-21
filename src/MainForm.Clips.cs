@@ -386,7 +386,7 @@ namespace AutoShorts
             if (slotInfo == null) return;
             var id = SelectedId(publishChannelCombo);
             var ch = id == null ? null : settings.FindChannel(id);
-            if (ch == null) { slotInfo.Text = settings.Channels.Count == 0 ? "Підключіть канал у «Каналах»" : ""; return; }
+            if (ch == null) { slotInfo.Text = settings.Channels.Count == 0 ? "Підключіть канал: «Канали» → «Увійти через Google»" : ""; return; }
             var next = BestTime.NextSlotUtc(ch, settings.Published.Where(p => p.ChannelId == ch.Id).Select(p => p.PublishAtUtc), DateTime.UtcNow);
             slotInfo.Text = "наступний слот " + BestTime.Format(next);
         }
