@@ -16,17 +16,46 @@ namespace AutoShorts
                 var o = Json.Parse(body);
                 var tag = (Json.Str(o, "tag_name") ?? "").TrimStart('v', 'V');
                 var url = Json.Str(o, "html_url") ?? ReleasesUrl;
+                string any = null, setup = null;
                 foreach (var a in Json.Arr(o, "assets"))
                 {
                     var name = Json.Str(a, "name") ?? "";
-                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) { url = Json.Str(a, "browser_download_url") ?? url; break; }
+                    if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
+                    var u = Json.Str(a, "browser_download_url");
+                    if (any == null) any = u;
+                    if (name.IndexOf("setup", StringComparison.OrdinalIgnoreCase) >= 0) setup = u;
                 }
+                url = setup ?? any ?? url;
                 Version latest, current;
                 if (Version.TryParse(tag, out latest) && Version.TryParse(AppVersion.Text, out current) && latest > current)
                     return Tuple.Create(tag, url);
             }
             catch { }
             return null;
+        }
+
+        /// <summary>Програма встановлена інсталятором (а не запущена як портативний exe)?</summary>
+        public static bool IsInstalled
+        {
+            get
+            {
+                try
+                {
+                    var exe = System.Windows.Forms.Application.ExecutablePath;
+                    var dir = System.IO.Path.GetDirectoryName(exe);
+                    return System.IO.Directory.GetFiles(dir, "unins*.exe").Length > 0;
+                }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>Завантажує інсталятор і запускає тихе оновлення. Повертає true, якщо програму треба закрити.</summary>
+        public static async Task<bool> InstallAsync(string setupUrl, Action<int> progress)
+        {
+            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "AutoShorts-Setup-update.exe");
+            await Net.DownloadFileAsync(setupUrl, path, progress, System.Threading.CancellationToken.None);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path, "/SP- /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS") { UseShellExecute = true });
+            return true;
         }
     }
 

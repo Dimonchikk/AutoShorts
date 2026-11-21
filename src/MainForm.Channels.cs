@@ -99,17 +99,14 @@ namespace AutoShorts
 
         async void AddChannel()
         {
-            if (string.IsNullOrWhiteSpace(settings.ClientId))
+            if (!settings.HasGoogleClient())
             {
-                if (MessageBox.Show("Спершу потрібен Client ID від Google (робиться один раз). Показати інструкцію?", "AutoShorts",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes) ShowGuide();
-                ShowPage(PSettings);
-                return;
+                if (!ShowConnectWizard()) return;
             }
             try
             {
                 Log("Відкриваю вхід Google у браузері…");
-                var tok = await GoogleAuth.SignInAsync(settings.ClientId, settings.ClientSecret, CancellationToken.None);
+                var tok = await GoogleAuth.SignInAsync(settings.GoogleClientId(), settings.GoogleClientSecret(), CancellationToken.None);
                 var api = new YouTubeApi(tok.AccessToken);
                 var me = await api.MyChannelAsync();
                 var ch = settings.FindChannel(me.Item1);
@@ -120,6 +117,8 @@ namespace AutoShorts
                 }
                 ch.Title = me.Item2;
                 ch.RefreshTokenProtected = AppSettings.Protect(tok.RefreshToken);
+                ch.ClientId = settings.GoogleClientId();
+                ch.ClientSecretProtected = AppSettings.Protect(settings.GoogleClientSecret());
                 if (settings.DefaultChannelId == null) settings.DefaultChannelId = ch.Id;
                 settings.Save();
                 Log("Канал додано: " + ch.Title);

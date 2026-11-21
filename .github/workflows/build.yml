@@ -28,15 +28,41 @@ jobs:
             exit 1
           }
 
+      - name: Built-in Google client
+        shell: pwsh
+        env:
+          GCID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GCSECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          if ($env:GCID) {
+            $id = $env:GCID.Trim(); $sec = "$($env:GCSECRET)".Trim()
+            $code = "namespace AutoShorts { static class BuiltInGoogle { public const string ClientId = `"$id`"; public const string ClientSecret = `"$sec`"; } }"
+            Set-Content -Path src/BuiltInGoogle.cs -Value $code -Encoding utf8
+            Write-Host "Вбудовано Google Client ID"
+          } else { Write-Host "Секрету GOOGLE_CLIENT_ID немає — збираю без вбудованого клієнта" }
+
       - name: Build
         shell: pwsh
         run: ./src/build.ps1
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup не знайдено" }
+          $v = (Select-String -Path src/Version.cs -Pattern 'Text = "([^"]+)"').Matches[0].Groups[1].Value
+          & $iscc "/DAppVer=$v" src/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Помилка збирання інсталятора ($LASTEXITCODE)" }
+          Get-Item dist/*.exe | ForEach-Object { Write-Host ("{0}: {1} КБ" -f $_.Name, [math]::Round($_.Length / 1KB)) }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoShorts
-          path: dist/AutoShorts.exe
+          path: |
+            dist/AutoShorts-Setup.exe
+            dist/AutoShorts.exe
 
       - name: Create draft release
         if: ${{ inputs.version != '' }}
@@ -58,4 +84,4 @@ jobs:
           for id in $(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$TAG\") | .id"); do
             gh api -X DELETE "repos/$REPO/releases/$id"
           done
-          gh release create "$TAG" dist/AutoShorts.exe --draft --title "AutoShorts $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
+          gh release create "$TAG" dist/AutoShorts-Setup.exe dist/AutoShorts.exe --draft --title "AutoShorts $VERSION" --notes-file notes.md --target "$GITHUB_SHA"

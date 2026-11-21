@@ -25,6 +25,8 @@ namespace AutoShorts
         public string Id { get; set; }
         public string Title { get; set; }
         public string RefreshTokenProtected { get; set; }
+        public string ClientId { get; set; }               // клієнт Google, через який увійшли (токен прив’язаний до нього)
+        public string ClientSecretProtected { get; set; }
         public int ShortsPerDay { get; set; }
         /// <summary>168 значень: (день тижня за Києвом) * 24 + година.</summary>
         public List<double> HourScores { get; set; }

@@ -133,6 +133,19 @@ namespace AutoShorts
             catch { }
         }
 
+        // свій Client ID з налаштувань, інакше вбудований у програму
+        public string GoogleClientId()
+        {
+            return !string.IsNullOrWhiteSpace(ClientId) ? ClientId.Trim() : BuiltInGoogle.ClientId;
+        }
+
+        public string GoogleClientSecret()
+        {
+            return !string.IsNullOrWhiteSpace(ClientId) ? (ClientSecret ?? "").Trim() : BuiltInGoogle.ClientSecret;
+        }
+
+        public bool HasGoogleClient() { return !string.IsNullOrWhiteSpace(GoogleClientId()); }
+
         public ChannelInfo FindChannel(string id)
         {
             foreach (var c in Channels) if (c.Id == id) return c;

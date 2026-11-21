@@ -177,8 +177,10 @@ namespace AutoShorts
             lock (cache) cache.TryGetValue(refresh, out t);
             if (t != null && t.AccessToken != null && t.ExpiresUtc > DateTime.UtcNow) return t.AccessToken;
             var form = new Dictionary<string, string>();
-            form["client_id"] = (s.ClientId ?? "").Trim();
-            if (!string.IsNullOrWhiteSpace(s.ClientSecret)) form["client_secret"] = s.ClientSecret.Trim();
+            var cid = !string.IsNullOrWhiteSpace(ch.ClientId) ? ch.ClientId : s.GoogleClientId();
+            var csec = !string.IsNullOrWhiteSpace(ch.ClientId) ? AppSettings.Unprotect(ch.ClientSecretProtected) : s.GoogleClientSecret();
+            form["client_id"] = (cid ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(csec)) form["client_secret"] = csec.Trim();
             form["refresh_token"] = refresh;
             form["grant_type"] = "refresh_token";
             var nt = await PostTokenAsync(form);

@@ -30,7 +30,8 @@ release = gh(f"https://api.github.com/repos/{repo}/releases/tags/{tag}")
 body = release.get("body") or ""
 version = tag.lstrip("vV")
 
-asset = next((a for a in release.get("assets", []) if a["name"].lower().endswith(".exe")), None)
+exes = [a for a in release.get("assets", []) if a["name"].lower().endswith(".exe")]
+asset = next((a for a in exes if "setup" in a["name"].lower()), exes[0] if exes else None)
 download = asset["browser_download_url"] if asset else release["html_url"]
 owner, name = repo.split("/")
 site = f"https://{owner.lower()}.github.io/{name}/"

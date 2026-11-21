@@ -269,7 +269,7 @@
         <div class="box-foot">
           <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg>Windows 10 / 11</span>
           <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/></svg>Без ключів ШІ</span>
-          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V7H4v13h8M16 19l2 2 4-4M4 7l2-4h12l2 4"/></svg>Без встановлення</span>
+          <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12V7H4v13h8M16 19l2 2 4-4M4 7l2-4h12l2 4"/></svg>Інсталятор або портативна</span>
         </div>
       </div>
       <div class="ver" id="ver">Безкоштовно · Windows 10/11</div>
@@ -440,7 +440,7 @@
     <div class="faq" style="text-align:left">
       <details><summary>Це справді безкоштовно?</summary><p>Так. Програма працює на вашому комп’ютері: FFmpeg і yt-dlp вона докачає сама, а моменти шукає без хмарних моделей. Для публікації на YouTube потрібен лише безкоштовний Google Client ID — інструкція є в програмі.</p></details>
       <details><summary>Як AutoShorts знаходить цікаві моменти без ШІ?</summary><p>Поєднує три сигнали: графік «найчастіше переглядають» з YouTube, сплески гучності (сміх, емоції, акценти) і щільність мови. Межі кліпів ставляться на паузах між реченнями, щоб не різати посеред слова. Можна ще вказати слова-моменти — фрагменти з ними отримають пріоритет.</p></details>
-      <details><summary>Що потрібно, щоб запустити?</summary><p>Windows 10 або 11. Встановлення не потрібне — завантажте <code>AutoShorts.exe</code> і запустіть. При першому запуску програма завантажить FFmpeg і yt-dlp.</p></details>
+      <details><summary>Що потрібно, щоб запустити?</summary><p>Windows 10 або 11. Завантажте <code>AutoShorts-Setup.exe</code> — інсталятор поставить програму, додасть її в меню «Пуск» і на робочий стіл (права адміністратора не потрібні). Є й портативна версія <code>AutoShorts.exe</code> на сторінці релізу. При першому запуску програма завантажить FFmpeg і yt-dlp.</p></details>
       <details><summary>Чи можна нарізати відео з комп’ютера?</summary><p>Так — кнопка «Файл з комп’ютера» або перетягування у вікно. Субтитри з <code>.srt</code> з такою ж назвою підхопляться автоматично, або завантажте SRT вручну на сторінці проєкту.</p></details>
       <details><summary>Скільки каналів можна підключити?</summary><p>Скільки завгодно. Кожен канал входить через свій Google-акаунт, має свій розклад, найкращий час і звіт переглядів.</p></details>
       <details><summary>Windows попереджає про невідомого видавця</summary><p>Це звичайно для програм без платного сертифіката. Натисніть «Докладніше» → «Усе одно запустити». Код повністю відкритий на GitHub.</p></details>
@@ -501,7 +501,8 @@ fetch('https://api.github.com/repos/Dimonchikk/AutoShorts/releases/latest')
   .then(function (data) {
     var tag = data.tag_name || '';
     if (!tag) return;
-    var asset = (data.assets || []).find(function (a) { return /\.exe$/i.test(a.name); });
+    var exes = (data.assets || []).filter(function (a) { return /\.exe$/i.test(a.name); });
+    var asset = exes.find(function (a) { return /setup/i.test(a.name); }) || exes[0];
     var url = asset ? asset.browser_download_url : data.html_url;
     document.querySelectorAll('.btn-download').forEach(function (el) { el.href = url; });
     var big = document.querySelector('.cta .btn-download');

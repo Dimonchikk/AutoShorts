@@ -78,7 +78,7 @@ namespace AutoShorts
             var yt = group("YouTube", "Client ID потрібен один раз — він дозволяє програмі входити у ваші канали. Ключі ШІ не потрібні.");
             add(yt, "Client ID", new Field(clientIdBox, 0, "xxxxxxxx.apps.googleusercontent.com"));
             add(yt, "Client secret", new Field(clientSecretBox, 0, null));
-            add(yt, "", Row(Btn("Як отримати", (s, e) => ShowGuide(), ButtonKind.Secondary, Glyphs.Help),
+            add(yt, "", Row(Btn("Майстер підключення", (s, e) => ShowConnectWizard(), ButtonKind.Primary, Glyphs.Help), Btn("Інструкція", (s, e) => ShowGuide(), ButtonKind.Secondary),
                             Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl), ButtonKind.Plain, Glyphs.Link)));
 
             var files = group("Файли", null);

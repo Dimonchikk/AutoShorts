@@ -90,7 +90,7 @@ namespace AutoShorts
                 BackColor = Theme.SidebarBg, LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed,
                 LinkBehavior = LinkBehavior.HoverUnderline, Font = Theme.Semi(10F)
             };
-            updateLink.LinkClicked += (s, e) => OpenUrl(updateLink.Tag as string ?? Updates.ReleasesUrl);
+            updateLink.LinkClicked += (s, e) => UpdateClicked();
             content.Controls.Add(updateLink);
 
             Controls.Add(content);
@@ -111,8 +111,8 @@ namespace AutoShorts
             Shown += async (s, e) =>
             {
                 Log("AutoShorts " + AppVersion.Text + " запущено. Обличчя: " + (FaceFrame.Available ? "детектор Windows доступний" : "недоступно (кадр по центру)"));
-                if (string.IsNullOrWhiteSpace(settings.ClientId))
-                    Log("Щоб публікувати на YouTube, заповніть Client ID у «Налаштуваннях» (там є інструкція).");
+                if (!settings.HasGoogleClient())
+                    Log("Щоб публікувати на YouTube, відкрийте «Канали» → «Додати канал» — майстер підключення проведе крок за кроком.");
                 LoadThumbsAsync();
                 if (jobs.Any(j => !j.Done && j.Error == null)) StartStop();
                 await CheckUpdatesAsync();
@@ -156,9 +156,40 @@ namespace AutoShorts
         {
             var u = await Updates.CheckAsync();
             if (u == null) return;
-            updateLink.Text = "🎉  Вийшла нова версія AutoShorts " + u.Item1 + " — натисніть, щоб завантажити  →";
+            bool setup = u.Item2.IndexOf("setup", StringComparison.OrdinalIgnoreCase) >= 0;
+            updateLink.Text = setup && Updates.IsInstalled
+                ? "🎉  Вийшла AutoShorts " + u.Item1 + " — натисніть, щоб оновити зараз (1 хвилина)  →"
+                : "🎉  Вийшла нова версія AutoShorts " + u.Item1 + " — натисніть, щоб завантажити  →";
             updateLink.Tag = u.Item2;
             updateLink.Visible = true;
+        }
+
+        async void UpdateClicked()
+        {
+            var url = updateLink.Tag as string ?? Updates.ReleasesUrl;
+            if (url.IndexOf("setup", StringComparison.OrdinalIgnoreCase) < 0 || !Updates.IsInstalled) { OpenUrl(url); return; }
+            if (running || publishing)
+            {
+                MessageBox.Show("Зачекайте, поки закінчиться обробка або публікація, — тоді оновіть.", "AutoShorts");
+                return;
+            }
+            try
+            {
+                updateLink.Enabled = false;
+                var ok = await Updates.InstallAsync(url, p => Ui(() => updateLink.Text = "Завантажую оновлення… " + p + "%"));
+                if (ok)
+                {
+                    AppSettings.SaveJobs(jobs);
+                    try { settings.Save(); } catch { }
+                    Application.Exit();
+                }
+            }
+            catch (Exception ex)
+            {
+                updateLink.Enabled = true;
+                Log("Оновлення: " + ex.Message);
+                OpenUrl(url);
+            }
         }
 
         void OnClosing(object sender, FormClosingEventArgs e)
