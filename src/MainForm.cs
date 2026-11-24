@@ -121,6 +121,11 @@ namespace AutoShorts
             updateTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
             updateTimer.Tick += async (s, e) => await CheckUpdatesAsync();
             updateTimer.Start();
+            Tools.Power = settings.Power;
+            var pendingTimer = new System.Windows.Forms.Timer { Interval = 15 * 60 * 1000 };
+            pendingTimer.Tick += (s, e) => RetryPending();
+            pendingTimer.Start();
+            Shown += (s, e) => RetryPending();
             FormClosing += OnClosing;
         }
 

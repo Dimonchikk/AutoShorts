@@ -37,20 +37,25 @@ namespace AutoShorts
             return d;
         }
 
-        public static async Task<List<string>> ExtractFramesAsync(string video, double start, double dur, string dir, CancellationToken ct, double step = 0)
+        public static async Task<List<string>> ExtractFramesAsync(string video, double start, double dur, string dir, CancellationToken ct, double step = 0, int width = 480)
         {
             Directory.CreateDirectory(dir);
             foreach (var f in Directory.GetFiles(dir, "f_*.jpg")) { try { File.Delete(f); } catch { } }
             if (step <= 0) step = Math.Max(1, dur / 30);
             var args = "-v error -ss " + F(start) + " -t " + F(dur) + " -i " + Tools.Q(video) +
-                       " -vf \"fps=1/" + F(step) + ",scale=480:-2\" -q:v 4 " + Tools.Q(Path.Combine(dir, "f_%03d.jpg"));
+                       " -vf \"fps=1/" + F(step) + ",scale=" + width + ":-2\" -q:v 4 " + Tools.Q(Path.Combine(dir, "f_%03d.jpg"));
             await Tools.RunAsync(Tools.FFmpeg, args, null, null, ct);
             return Directory.GetFiles(dir, "f_*.jpg").OrderBy(x => x).ToList();
         }
 
-        static string CropFilter(Size src, double faceX, string facePath = null)
+        static int Even(double v) { return Math.Max(2, (int)Math.Round(v / 2) * 2); }
+
+        /// <summary>Кадр під потрібний формат: вирізаємо за обличчям (або по центру), а якщо не можна — ціле відео на розмитому фоні.</summary>
+        static string CropFilter(Size src, Size outSz, double faceX, string facePath = null)
         {
-            int cropW = (int)Math.Round(src.Height * 9.0 / 16.0) / 2 * 2;
+            int W = outSz.Width, H = outSz.Height;
+            string scale = ",scale=" + W + ":" + H + ",setsar=1";
+            int cropW = Even(src.Height * (double)W / H);
             if (cropW <= src.Width && !string.IsNullOrEmpty(facePath))
             {
                 // кадр рухається за обличчям: кусково-лінійна траєкторія x(t)
@@ -72,7 +77,7 @@ namespace AutoShorts
                         string seg = Math.Abs(x1 - x0) < 0.5 ? Num(x0) : Num(x0) + "+" + Num(x1 - x0) + "*(t-" + Num(t0) + ")/" + Num(Math.Max(0.01, t1 - t0));
                         expr = "if(lt(t," + Num(t1) + ")," + seg + "," + expr + ")";
                     }
-                    return "crop=" + cropW + ":" + src.Height + ":x='" + expr + "':y=0,scale=1080:1920,setsar=1";
+                    return "crop=" + cropW + ":" + src.Height + ":x='" + expr + "':y=0" + scale;
                 }
             }
             if (cropW <= src.Width)
@@ -80,15 +85,52 @@ namespace AutoShorts
                 double cx = faceX >= 0 ? faceX : 0.5;
                 int x = (int)Math.Round(cx * src.Width - cropW / 2.0);
                 x = Math.Max(0, Math.Min(src.Width - cropW, x));
-                return "crop=" + cropW + ":" + src.Height + ":" + x + ":0,scale=1080:1920,setsar=1";
+                return "crop=" + cropW + ":" + src.Height + ":" + x + ":0" + scale;
             }
-            // вже вертикальне чи вужче — вписуємо з розмитим фоном
-            return "split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:2[bg];" +
-                   "[b]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1";
+            // відео вужче за потрібний формат (вертикальне → квадрат): ріжемо по висоті, якщо втрачаємо не більше половини
+            int cropH = Even(src.Width * (double)H / W);
+            if (cropH <= src.Height && cropH >= src.Height * 0.5)
+                return "crop=" + src.Width + ":" + cropH + ":0:" + Even((src.Height - cropH) / 2.0) + scale;
+            return FitFilter(outSz);
         }
 
-        const string FitFilter = "split[a][b];[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:2,eq=brightness=-0.08[bg];" +
-                                 "[b]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1";
+        static string FitFilter(Size o)
+        {
+            string wh = o.Width + ":" + o.Height;
+            return "split[a][b];[a]scale=" + wh + ":force_original_aspect_ratio=increase,crop=" + wh + ",boxblur=24:2,eq=brightness=-0.08[bg];" +
+                   "[b]scale=" + wh + ":force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1";
+        }
+
+        /// <summary>
+        /// Макет для стрімів (з ViralCut): зверху вікно камери стримера, знизу гра чи екран.
+        /// cam — прямокутник камери у вихідному кадрі.
+        /// </summary>
+        static string StreamFilter(Size src, Size o, Rectangle cam)
+        {
+            int W = o.Width, H = o.Height;
+            int camH = Even(H * 0.38), gameH = H - camH;
+            // камера → під пропорцію W:camH, розширюючи прямокутник навколо центру
+            double ar = (double)W / camH;
+            double cx = cam.X + cam.Width / 2.0, cy = cam.Y + cam.Height / 2.0;
+            double cw = cam.Width, ch = cam.Height;
+            if (cw / ch > ar) ch = cw / ar; else cw = ch * ar;
+            if (cw > src.Width) { cw = src.Width; ch = cw / ar; }
+            if (ch > src.Height) { ch = src.Height; cw = ch * ar; }
+            int icw = Even(cw), ich = Even(ch);
+            int icx = (int)Math.Max(0, Math.Min(src.Width - icw, cx - icw / 2.0));
+            int icy = (int)Math.Max(0, Math.Min(src.Height - ich, cy - ich / 2.0));
+            // гра: центр кадру під пропорцію W:gameH
+            int gw = Even(src.Height * (double)W / gameH);
+            string game;
+            if (gw <= src.Width)
+                game = "crop=" + gw + ":" + src.Height + ":" + Even((src.Width - gw) / 2.0) + ":0,scale=" + W + ":" + gameH;
+            else
+                game = "scale=" + W + ":" + gameH + ":force_original_aspect_ratio=decrease,pad=" + W + ":" + gameH + ":(ow-iw)/2:(oh-ih)/2";
+            return "split[g0][c0];[c0]crop=" + icw + ":" + ich + ":" + icx + ":" + icy + ",scale=" + W + ":" + camH + ",setsar=1[cam];" +
+                   "[g0]" + game + ",setsar=1[game];[cam][game]vstack=inputs=2,setsar=1";
+        }
+
+        public static bool StreamFits(Size o) { return o.Width < o.Height * 0.9; }
 
         static string Num(double v) { return v.ToString("0.###", CultureInfo.InvariantCulture); }
 
@@ -125,7 +167,7 @@ namespace AutoShorts
         }
 
         // Автонаближення: кожне друге речення трохи ближче — як ручний монтаж «jump zoom»
-        static string ZoomFilter(List<Word> words, double duration)
+        static string ZoomFilter(List<Word> words, double duration, Size o)
         {
             var segs = new List<string>();
             double segStart = 0;
@@ -144,7 +186,7 @@ namespace AutoShorts
             {
                 for (double t = 4; t < duration && segs.Count < 24; t += 8) segs.Add("between(it," + Num(t) + "," + Num(Math.Min(duration, t + 4)) + ")");
             }
-            return "zoompan=z='if(" + string.Join("+", segs) + ",1.12,1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30";
+            return "zoompan=z='if(" + string.Join("+", segs) + ",1.12,1)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=" + o.Width + "x" + o.Height + ":fps=30";
         }
 
         static string LogoOverlay(string pos)
@@ -159,9 +201,12 @@ namespace AutoShorts
         }
 
         public static async Task RenderAsync(string video, Size src, ClipItem clip, List<Word> clipWords, SubStyle style,
-                                             Recipe recipe, string outPath, Action<int> progress, CancellationToken ct)
+                                             Recipe recipe, string outPath, Action<int> progress, CancellationToken ct,
+                                             string encoder = null, Rectangle cam = default(Rectangle))
         {
             if (recipe == null) recipe = new Recipe();
+            var o = Recipe.OutSize(recipe.Aspect);
+            if (encoder == null) encoder = "libx264";
             var dir = Path.GetDirectoryName(outPath);
             Directory.CreateDirectory(dir);
             var assName = Path.GetFileNameWithoutExtension(outPath) + ".ass";
@@ -200,11 +245,15 @@ namespace AutoShorts
             var keywords = new HashSet<string>(Metadata.Keywords(clip.Text, 6));
             var capWords = recipe.Captions ? words : new List<Word>();
             var hook = recipe.Hook ? clip.Hook : null;
-            var ass = SubtitleStyles.BuildAss(capWords, style, hook, outDur, keywords, recipe.HookStyle);
+            style = style.Placed(recipe.SubPosition, recipe.SubSize, o);
+            var ass = SubtitleStyles.BuildAss(capWords, style, hook, outDur, keywords, recipe.HookStyle, o);
             File.WriteAllText(Path.Combine(dir, assName), ass, new UTF8Encoding(false));
 
             bool logo = !string.IsNullOrEmpty(recipe.LogoPath) && File.Exists(recipe.LogoPath);
-            var frame = recipe.Layout == "fit" ? FitFilter : CropFilter(src, clip.FaceX, recipe.TrackFace ? clip.FacePath : null);
+            string frame;
+            if (recipe.Layout == "stream" && cam.Width > 0 && StreamFits(o)) frame = StreamFilter(src, o, cam);
+            else if (recipe.Layout == "fit") frame = FitFilter(o);
+            else frame = CropFilter(src, o, clip.FaceX, recipe.TrackFace ? clip.FacePath : null);
             if (recipe.ColorBoost) frame += ",eq=contrast=1.07:saturation=1.2:brightness=0.015:gamma=0.98,unsharp=5:5:0.45:5:5:0";
 
             var af = new List<string>();
@@ -233,14 +282,14 @@ namespace AutoShorts
                 audioMap = " -map \"[aout]\"";
                 bool first = true;
                 Func<string> sep = () => { if (first) { first = false; return ""; } return ","; };
-                if (recipe.AutoZoom) vf += sep() + ZoomFilter(words, outDur);
+                if (recipe.AutoZoom) vf += sep() + ZoomFilter(words, outDur, o);
                 if (capWords.Count > 0 || hook != null) vf += sep() + "subtitles=" + assName + fontsArg;
                 if (first) vf += "null";
             }
             else
             {
                 vf = "[0:v]" + frame;
-                if (recipe.AutoZoom) vf += "," + ZoomFilter(words, outDur);
+                if (recipe.AutoZoom) vf += "," + ZoomFilter(words, outDur, o);
                 if (capWords.Count > 0 || hook != null) vf += ",subtitles=" + assName + fontsArg;
                 audioMap = " -map 0:a?";
                 afArg = af.Count > 0 ? " -af \"" + string.Join(",", af) + "\"" : "";
@@ -252,12 +301,13 @@ namespace AutoShorts
             vf += "[v]";
             var inputs = " -i " + Tools.Q(video) + (logo ? " -i " + Tools.Q(recipe.LogoPath) : "");
             var tmp = outPath + ".tmp.mp4";
-            var args = "-y -v error -nostats -progress pipe:1 -ss " + F(clip.Start) + " -t " + F(clip.Duration) +
+            Func<string, string> argsFor = enc => "-y -v error -nostats -progress pipe:1 -filter_threads " + Tools.Threads +
+                       " -ss " + F(clip.Start) + " -t " + F(clip.Duration) +
                        inputs + " -filter_complex \"" + vf + "\" -map \"[v]\"" + audioMap + afArg + " -sn -dn -t " + F(outDur) +
-                       " -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30 -c:a aac -b:a 160k -ar 48000" +
+                       " " + Encoders.Args(enc) + " -r 30 -c:a aac -b:a 160k -ar 48000" +
                        " -movflags +faststart " + Tools.Q(tmp);
             double total = outDur;
-            var r = await Tools.RunAsync(Tools.FFmpeg, args, dir, line =>
+            Action<string> onLine = line =>
             {
                 if (line.StartsWith("out_time_ms=") && progress != null)
                 {
@@ -265,7 +315,15 @@ namespace AutoShorts
                     if (long.TryParse(line.Substring(12), out us) && total > 0)
                         progress((int)Math.Min(100, us / 1e6 / total * 100));
                 }
-            }, ct);
+            };
+            var r = await Tools.RunAsync(Tools.FFmpeg, argsFor(encoder), dir, onLine, ct);
+            if ((r.ExitCode != 0 || !File.Exists(tmp)) && encoder != "libx264")
+            {
+                // відеокарта не впоралась (драйвер, зайнята, стара) — робимо на процесорі
+                Encoders.Disable();
+                try { File.Delete(tmp); } catch { }
+                r = await Tools.RunAsync(Tools.FFmpeg, argsFor("libx264"), dir, onLine, ct);
+            }
             if (r.ExitCode != 0 || !File.Exists(tmp))
                 throw new Exception("FFmpeg не зміг зробити кліп: " + r.Tail(500));
             if (File.Exists(outPath)) File.Delete(outPath);
@@ -302,10 +360,15 @@ namespace AutoShorts
             return best;
         }
 
-        public static async Task MakeCoverAsync(string video, Size src, ClipItem clip, double atSecond, string title, string outPath, CancellationToken ct)
+        public static async Task MakeCoverAsync(string video, Size src, ClipItem clip, double atSecond, string title, string outPath, CancellationToken ct,
+                                                Recipe recipe = null, Rectangle cam = default(Rectangle))
         {
             var raw = outPath + ".raw.jpg";
-            var vf = CropFilter(src, clip.FaceX);
+            var o = Recipe.OutSize(recipe != null ? recipe.Aspect : null);
+            string vf;
+            if (recipe != null && recipe.Layout == "stream" && cam.Width > 0 && StreamFits(o)) vf = StreamFilter(src, o, cam);
+            else if (recipe != null && recipe.Layout == "fit") vf = FitFilter(o);
+            else vf = CropFilter(src, o, clip.FaceX);
             var args = "-y -v error -ss " + F(clip.Start + atSecond) + " -i " + Tools.Q(video) +
                        " -frames:v 1 -filter_complex \"" + vf + "\" -q:v 2 " + Tools.Q(raw);
             var r = await Tools.RunAsync(Tools.FFmpeg, args, null, null, ct);
@@ -317,38 +380,42 @@ namespace AutoShorts
         static void DrawTitle(string rawPath, string title, string outPath)
         {
             using (var img = Image.FromFile(rawPath))
-            using (var bmp = new Bitmap(1080, 1920))
+            using (var bmp = new Bitmap(img.Width, img.Height))
             using (var g = Graphics.FromImage(bmp))
             {
+                int W = img.Width, H = img.Height;
+                float k = Math.Min(W / 1080f, H / 1920f * 1.6f);   // текст під розмір кадру
+                k = Math.Max(0.55f, Math.Min(1.4f, k));
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                g.DrawImage(img, 0, 0, 1080, 1920);
-                using (var shade = new LinearGradientBrush(new Rectangle(0, 0, 1080, 900), Color.FromArgb(170, 0, 0, 0), Color.FromArgb(0, 0, 0, 0), 90f))
-                    g.FillRectangle(shade, 0, 0, 1080, 900);
+                g.DrawImage(img, 0, 0, W, H);
+                int shadeH = (int)(H * 0.47);
+                using (var shade = new LinearGradientBrush(new Rectangle(0, 0, W, shadeH), Color.FromArgb(170, 0, 0, 0), Color.FromArgb(0, 0, 0, 0), 90f))
+                    g.FillRectangle(shade, 0, 0, W, shadeH);
 
                 var text = (title ?? "").Replace("#shorts", "").Trim().ToUpperInvariant();
                 if (text.Length > 0)
                 {
                     var family = FontFamily.Families.Any(f => f.Name == "Arial Black") ? new FontFamily("Arial Black") : FontFamily.GenericSansSerif;
-                    float size = 104;
+                    float size = 104 * k;
                     var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near };
-                    var area = new RectangleF(60, 220, 960, 900);
+                    var area = new RectangleF(W * 0.055f, H * 0.115f, W * 0.89f, H * 0.47f);
                     var style = family.IsStyleAvailable(FontStyle.Bold) ? FontStyle.Bold : FontStyle.Regular;
                     // зменшуємо, поки текст не влізе
-                    while (size > 50)
+                    while (size > 50 * k)
                     {
                         using (var f = new Font(family, size, style, GraphicsUnit.Pixel))
                         {
                             var m = g.MeasureString(text, f, (int)area.Width, fmt);
-                            if (m.Height <= 620) break;
+                            if (m.Height <= H * 0.32f) break;
                         }
-                        size -= 6;
+                        size -= 6 * k;
                     }
                     using (var path = new GraphicsPath())
                     {
                         path.AddString(text, family, (int)style, size, area, fmt);
-                        using (var pen = new Pen(Color.Black, 16) { LineJoin = LineJoin.Round })
+                        using (var pen = new Pen(Color.Black, 16 * k) { LineJoin = LineJoin.Round })
                             g.DrawPath(pen, path);
                         using (var fill = new SolidBrush(Color.FromArgb(255, 255, 229, 0)))
                             g.FillPath(fill, path);

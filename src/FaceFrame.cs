@@ -111,6 +111,102 @@ namespace AutoShorts
             return res;
         }
 
+        /// <summary>Усі обличчя на кожному кадрі (прямокутники 0..1 від розміру кадру).</summary>
+        public static async Task<List<List<System.Drawing.RectangleF>>> FaceBoxesAsync(List<string> frames)
+        {
+            var res = new List<List<System.Drawing.RectangleF>>();
+#if WINRT
+            if (!Available || frames.Count == 0) return res;
+            var detector = await FaceDetector.CreateAsync().AsTask();
+            try { detector.MinDetectableFaceSize = new BitmapSize { Width = 24, Height = 24 }; } catch { }
+            foreach (var path in frames)
+            {
+                var list = new List<System.Drawing.RectangleF>();
+                try
+                {
+                    var file = await StorageFile.GetFileFromPathAsync(path).AsTask();
+                    using (IRandomAccessStream stream = await file.OpenAsync(FileAccessMode.Read).AsTask())
+                    {
+                        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask();
+                        var bmp = await decoder.GetSoftwareBitmapAsync().AsTask();
+                        var gray = SoftwareBitmap.Convert(bmp, BitmapPixelFormat.Gray8);
+                        var faces = await detector.DetectFacesAsync(gray).AsTask();
+                        float w = bmp.PixelWidth, h = bmp.PixelHeight;
+                        foreach (var f in faces)
+                            list.Add(new System.Drawing.RectangleF(f.FaceBox.X / w, f.FaceBox.Y / h, f.FaceBox.Width / w, f.FaceBox.Height / h));
+                        gray.Dispose();
+                        bmp.Dispose();
+                    }
+                }
+                catch { }
+                res.Add(list);
+            }
+#else
+            await Task.Yield();
+#endif
+            return res;
+        }
+
+        /// <summary>
+        /// Вікно камери стримера (з ViralCut pip.py): невелике обличчя, що весь час стоїть на одному місці ближче до краю кадру.
+        /// Повертає прямокутник камери (0..1) або пустий, якщо такого немає.
+        /// </summary>
+        public static System.Drawing.RectangleF FindCam(List<List<System.Drawing.RectangleF>> boxes)
+        {
+            var empty = System.Drawing.RectangleF.Empty;
+            if (boxes == null || boxes.Count < 3) return empty;
+            // кандидати: дрібні обличчя (менше 13% ширини), не в центральній смузі
+            var cands = new List<System.Drawing.RectangleF>();
+            foreach (var fr in boxes)
+                foreach (var b in fr)
+                {
+                    float cx = b.X + b.Width / 2, cy = b.Y + b.Height / 2;
+                    if (b.Width < 0.13f && b.Width > 0.012f && (cx < 0.36f || cx > 0.64f || cy < 0.3f || cy > 0.7f)) cands.Add(b);
+                }
+            if (cands.Count == 0) return empty;
+            // найбільше скупчення центрів (радіус 6% кадру)
+            System.Drawing.RectangleF best = empty;
+            int bestFrames = 0;
+            foreach (var c in cands)
+            {
+                float cx = c.X + c.Width / 2, cy = c.Y + c.Height / 2;
+                int frames = 0;
+                var near = new List<System.Drawing.RectangleF>();
+                foreach (var fr in boxes)
+                {
+                    bool hit = false;
+                    foreach (var b in fr)
+                    {
+                        float bx = b.X + b.Width / 2, by = b.Y + b.Height / 2;
+                        if (Math.Abs(bx - cx) < 0.06f && Math.Abs(by - cy) < 0.06f && b.Width < 0.13f) { near.Add(b); hit = true; }
+                    }
+                    if (hit) frames++;
+                }
+                if (frames > bestFrames)
+                {
+                    bestFrames = frames;
+                    var xs = near.Select(b => b.X + b.Width / 2).OrderBy(v => v).ToList();
+                    var ys = near.Select(b => b.Y + b.Height / 2).OrderBy(v => v).ToList();
+                    var ws = near.Select(b => b.Width).OrderBy(v => v).ToList();
+                    var hs = near.Select(b => b.Height).OrderBy(v => v).ToList();
+                    float mx = xs[xs.Count / 2], my = ys[ys.Count / 2], mw = ws[ws.Count / 2], mh = hs[hs.Count / 2];
+                    best = new System.Drawing.RectangleF(mx - mw / 2, my - mh / 2, mw, mh);
+                }
+            }
+            // камера має бути в кадрі більшу частину часу
+            if (bestFrames < Math.Max(3, (int)Math.Ceiling(boxes.Count * 0.55))) return empty;
+            // вікно камери ≈ обличчя × 4 по ширині і × 3.4 по висоті (плечі, трохи фону)
+            float fcx = best.X + best.Width / 2, fcy = best.Y + best.Height / 2;
+            float camW = Math.Min(0.5f, best.Width * 4.0f), camH = Math.Min(0.6f, best.Height * 3.4f);
+            float x0 = fcx - camW / 2, y0 = fcy - camH * 0.45f;
+            // вікно камери зазвичай притиснуте до краю — дотягуємо, якщо поруч
+            if (x0 < 0.06f) x0 = 0; if (x0 + camW > 0.94f) x0 = 1 - camW;
+            if (y0 < 0.06f) y0 = 0; if (y0 + camH > 0.94f) y0 = 1 - camH;
+            x0 = Math.Max(0, Math.Min(1 - camW, x0));
+            y0 = Math.Max(0, Math.Min(1 - camH, y0));
+            return new System.Drawing.RectangleF(x0, y0, camW, camH);
+        }
+
         /// <summary>
         /// Плавна траєкторія кадру з сирих позицій (як reframe.py у ViralCut): заповнення пропусків,
         /// медіана, згладжування в обидва боки, «мертва зона» від тремтіння, спрощення до ключових точок.

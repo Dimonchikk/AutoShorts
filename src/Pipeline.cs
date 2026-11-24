@@ -21,6 +21,47 @@ namespace AutoShorts
             settings = s; this.log = log; this.changed = changed;
         }
 
+        string encoder;          // яким кодувальником робимо кліпи (вибирається на початку проєкту)
+
+        async Task PrepareEncoderAsync(CancellationToken ct)
+        {
+            Tools.Power = settings.Power;
+            var e = await Encoders.PickAsync(settings.Encoder, ct);
+            if (e != encoder) log("Кодування: " + Encoders.Label(e) + (settings.Power < 100 ? ", потужність " + settings.Power + "%" : ""));
+            encoder = e;
+        }
+
+        static Rectangle CamOf(Job job)
+        {
+            return job.CamW > 0 ? new Rectangle(job.CamX, job.CamY, job.CamW, job.CamH) : Rectangle.Empty;
+        }
+
+        /// <summary>Шукає вікно камери стримера на 12 кадрах з різних місць відео.</summary>
+        async Task DetectCamAsync(Job job, string video, Size size, double from, double to, string work, CancellationToken ct)
+        {
+            job.CamX = job.CamY = job.CamW = job.CamH = 0;
+            if (!FaceFrame.Available) { log("Макет «Стрім»: детектор облич Windows недоступний — буде звичайний кадр."); return; }
+            var dir = Path.Combine(work, "cam");
+            Directory.CreateDirectory(dir);
+            foreach (var f in Directory.GetFiles(dir, "*.jpg")) { try { File.Delete(f); } catch { } }
+            var frames = new List<string>();
+            double len = Math.Max(1, to - from);
+            for (int i = 0; i < 12; i++)
+            {
+                double t = from + len * (i + 0.5) / 12;
+                var p = Path.Combine(dir, "c_" + i.ToString("00") + ".jpg");
+                await Tools.RunAsync(Tools.FFmpeg, "-y -v error -ss " + t.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                    " -i " + Tools.Q(video) + " -frames:v 1 -vf scale=1280:-2 -q:v 3 " + Tools.Q(p), null, null, ct);
+                if (File.Exists(p)) frames.Add(p);
+            }
+            var boxes = await FaceFrame.FaceBoxesAsync(frames);
+            var cam = FaceFrame.FindCam(boxes);
+            if (cam.Width <= 0) { log("Макет «Стрім»: вікна камери не знайдено — буде звичайний кадр за обличчям."); return; }
+            job.CamX = (int)(cam.X * size.Width); job.CamY = (int)(cam.Y * size.Height);
+            job.CamW = (int)(cam.Width * size.Width); job.CamH = (int)(cam.Height * size.Height);
+            log("Знайдено камеру стримера: " + job.CamW + "×" + job.CamH + " у точці " + job.CamX + "," + job.CamY);
+        }
+
         void Status(Job job, string text, int progress)
         {
             job.Status = text;
@@ -51,6 +92,7 @@ namespace AutoShorts
             job.Error = null;
             Status(job, "Підготовка інструментів", 1);
             await Tools.EnsureAsync(log, ct);
+            await PrepareEncoderAsync(ct);
 
             VideoInfo info;
             List<Word> words;
@@ -97,6 +139,19 @@ namespace AutoShorts
                 work = Downloader.WorkDir(info.Id);
                 try { await Thumbs.EnsureAsync(job, ct); } catch { }
                 changed(job);
+                if (info.IsLive)
+                {
+                    job.IsLive = true;
+                    await LiveAsync(job, info, work, ct);
+                    return;
+                }
+                if (job.IsLive && job.Clips.Count > 0)
+                {
+                    // ефір, який записували, уже завершився — кліпи готові
+                    job.Done = true;
+                    Status(job, "Ефір завершився — " + job.Clips.Count + " кліпів", 100);
+                    return;
+                }
 
                 Status(job, "Субтитри", 5);
                 var rc = RecipeOf(job);
@@ -132,18 +187,23 @@ namespace AutoShorts
             var clips = Highlights.Find(Math.Max(info.Duration, loud.Length), info.Heatmap, loud, words, count, minLen, maxLen, job.RangeStart, job.RangeEnd, RecipeOf(job).Keywords, RecipeOf(job).SkipAds);
             if (Highlights.AdBlocksFound > 0) log("Пропущено рекламних вставок: " + Highlights.AdBlocksFound);
             if (clips.Count == 0) throw new Exception("Не знайшлося фрагментів потрібної довжини.");
-            log("Знайдено фрагментів: " + clips.Count);
+            if (clips.Count < count)
+                log("Знайдено фрагментів: " + clips.Count + " з " + count + " — довжини відео вистачило лише на стільки кліпів без повторів.");
+            else log("Знайдено фрагментів: " + clips.Count);
 
             job.OutputDir = Path.Combine(settings.OutputFolder, SafeName(info.Title) + " [" + info.Id + "]");
             Directory.CreateDirectory(job.OutputDir);
             job.Clips = clips;
             var size = await Renderer.ProbeSizeAsync(video, ct);
+            if (RecipeOf(job).Layout == "stream")
+                await DetectCamAsync(job, video, size, job.RangeStart, job.RangeEnd > 0 ? job.RangeEnd : info.Duration, work, ct);
 
             for (int i = 0; i < clips.Count; i++)
             {
-                int baseP = 46 + i * 54 / clips.Count;
-                int span = 54 / clips.Count;
-                await BuildClipAsync(job, clips[i], video, size, words, work, p => Status(job, "Кліп " + (i + 1) + "/" + clips.Count + ": " + p + "%", baseP + p * span / 100), ct);
+                double baseP = 46 + i * 54.0 / clips.Count;
+                double span = 54.0 / clips.Count;
+                int n = i + 1;
+                await BuildClipAsync(job, clips[i], video, size, words, work, p => Status(job, "Кліп " + n + "/" + clips.Count + ": " + p + "%", (int)(baseP + p * span / 100)), ct);
             }
             job.Done = true;
             Status(job, job.AutoPublish ? "Готово, публікую" : "Готово — перегляньте кліпи", 100);
@@ -159,14 +219,16 @@ namespace AutoShorts
             Metadata.Fill(clip, job, settings);
 
             var recipe = RecipeOf(job);
-            bool track = recipe.TrackFace && recipe.Layout != "fit" && settings.FaceFraming && FaceFrame.Available;
+            clip.SourceFile = video;
+            var cam = recipe.Layout == "stream" ? CamOf(job) : Rectangle.Empty;
+            bool track = recipe.TrackFace && recipe.Layout != "fit" && cam.Width == 0 && settings.FaceFraming && FaceFrame.Available;
             // для руху кадру за обличчям — кадр щосекунди (щопівсекунди на коротких кліпах)
             double step = track ? Math.Max(0.5, clip.Duration / 60) : Math.Max(1, clip.Duration / 30);
             var framesDir = Path.Combine(work, "frames_" + clip.Index);
             var frames = await Renderer.ExtractFramesAsync(video, clip.Start, clip.Duration, framesDir, ct, step);
             clip.FaceX = -1;
             clip.FacePath = null;
-            if (settings.FaceFraming && FaceFrame.Available)
+            if (settings.FaceFraming && FaceFrame.Available && cam.Width == 0)
             {
                 try
                 {
@@ -183,7 +245,8 @@ namespace AutoShorts
             }
             var style = SubtitleStyles.Get(clip.StyleName ?? job.StyleName ?? settings.SubtitleStyle);
             clip.VideoPath = Path.Combine(job.OutputDir, "short_" + clip.Index.ToString("00") + ".mp4");
-            await Renderer.RenderAsync(video, size, clip, clipWords, style, recipe, clip.VideoPath, progress, ct);
+            if (encoder == null) await PrepareEncoderAsync(ct);
+            await Renderer.RenderAsync(video, size, clip, clipWords, style, recipe, clip.VideoPath, progress, ct, encoder, cam);
             if (clip.OutDuration > 0 && clip.OutDuration < clip.Duration - 0.3)
                 log("Кліп " + clip.Index + ": вирізано паузи — " + clip.Duration.ToString("0.0") + " → " + clip.OutDuration.ToString("0.0") + " с");
 
@@ -192,7 +255,7 @@ namespace AutoShorts
                 int bi = Renderer.BrightestFrame(frames);
                 double at = bi < 0 ? clip.Duration / 3 : Math.Min(clip.Duration - 0.5, bi * step + 0.5);
                 clip.CoverPath = Path.Combine(job.OutputDir, "cover_" + clip.Index.ToString("00") + ".jpg");
-                await Renderer.MakeCoverAsync(video, size, clip, Math.Max(0, at), clip.Hook, clip.CoverPath, ct);
+                await Renderer.MakeCoverAsync(video, size, clip, Math.Max(0, at), clip.Hook, clip.CoverPath, ct, recipe, cam);
             }
             catch (Exception ex)
             {
@@ -206,8 +269,9 @@ namespace AutoShorts
         public async Task RerenderAsync(Job job, ClipItem clip, CancellationToken ct)
         {
             await Tools.EnsureAsync(log, ct);
+            await PrepareEncoderAsync(ct);
             var work = Downloader.WorkDir(job.VideoId);
-            var video = Path.Combine(work, "source.mp4");
+            var video = !string.IsNullOrEmpty(clip.SourceFile) && File.Exists(clip.SourceFile) ? clip.SourceFile : Path.Combine(work, "source.mp4");
             if (!File.Exists(video)) throw new Exception("Вихідне відео видалено з кешу. Додайте посилання знову.");
             List<Word> words = new List<Word>();
             var rcr = RecipeOf(job);
@@ -226,6 +290,138 @@ namespace AutoShorts
             if (!string.IsNullOrEmpty(title)) clip.Title = title;
             if (!string.IsNullOrEmpty(desc)) clip.Description = desc;
             if (!string.IsNullOrEmpty(tags)) clip.Tags = tags;
+        }
+
+        const double LiveWindow = 600;   // аналізуємо ефір шматками по 10 хвилин
+
+        /// <summary>
+        /// Прямий ефір (з ViralCut live.py): FFmpeg пише потік у файл, а кожні 10 хвилин запису
+        /// шукаємо найгучніші моменти й одразу робимо з них кліпи. Субтитрів під час ефіру YouTube не дає.
+        /// </summary>
+        async Task LiveAsync(Job job, VideoInfo info, string work, CancellationToken ct)
+        {
+            var recipe = RecipeOf(job);
+            int perHour = job.ClipCount > 0 ? job.ClipCount : settings.ClipsPerVideo;
+            int minLen = job.MinLen > 0 ? job.MinLen : Math.Min(settings.MinSeconds, 30), maxLen = job.MaxLen > 0 ? job.MaxLen : Math.Min(settings.MaxSeconds, 60);
+            job.OutputDir = Path.Combine(settings.OutputFolder, SafeName(info.Title) + " [" + info.Id + "]");
+            Directory.CreateDirectory(job.OutputDir);
+            var startedUtc = DateTime.UtcNow;
+            var deadline = job.LiveMaxMinutes > 0 ? startedUtc.AddMinutes(job.LiveMaxMinutes) : DateTime.MaxValue;
+            log("Прямий ефір: записую і нарізаю по ходу (" + perHour + " кліпів на годину ефіру" +
+                (job.LiveMaxMinutes > 0 ? ", до " + job.LiveMaxMinutes + " хв" : ", до кінця трансляції") + "). Субтитрів під час ефіру немає — моменти шукаю за звуком.");
+
+            int part = Directory.GetFiles(work, "live_*.ts").Length;
+            bool ended = false;
+            while (!ended && !ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+            {
+                part++;
+                var file = Path.Combine(work, "live_" + part.ToString("00") + ".ts");
+                Status(job, "Підключаюсь до ефіру", 2);
+                string stream;
+                try { stream = await Downloader.LiveStreamUrlAsync(job.Url, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { log(ex.Message); break; }
+
+                using (var rec = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    var recStart = DateTime.UtcNow;
+                    var recTask = Tools.RunAsync(Tools.FFmpeg, "-y -v error -i " + Tools.Q(stream) + " -map 0:v:0? -map 0:a:0? -c copy -f mpegts " + Tools.Q(file), work, null, rec.Token);
+                    double processed = 0;
+                    Size size = Size.Empty;
+                    bool recDone = false;
+                    while (true)
+                    {
+                        // чекаємо 10 хвилин запису (або кінця запису)
+                        while (!recTask.IsCompleted && (DateTime.UtcNow - recStart).TotalSeconds < processed + LiveWindow + 15)
+                        {
+                            if (DateTime.UtcNow >= deadline) { rec.Cancel(); break; }
+                            int rec_s = (int)(DateTime.UtcNow - recStart).TotalSeconds;
+                            Status(job, "Запис ефіру " + TimeSpan.FromSeconds(rec_s).ToString(@"h\:mm\:ss") + " · кліпів: " + job.Clips.Count, 5);
+                            try { await Task.Delay(5000, ct); }
+                            catch (OperationCanceledException) { rec.Cancel(); try { await recTask; } catch { } throw; }
+                        }
+                        recDone = recTask.IsCompleted;
+                        if (recDone) { try { await recTask; } catch { } }
+                        if (!File.Exists(file) || new FileInfo(file).Length < 100000) break;
+                        if (size.IsEmpty)
+                        {
+                            size = await Renderer.ProbeSizeAsync(file, ct);
+                            if (recipe.Layout == "stream" && job.CamW == 0) await DetectCamAsync(job, file, size, 0, Math.Min(LiveWindow, (DateTime.UtcNow - recStart).TotalSeconds - 5), work, ct);
+                        }
+                        double window = recDone ? 1e7 : LiveWindow;
+                        var loud = await LiveLoudnessAsync(file, processed, window, ct);
+                        if (loud.Length >= minLen)
+                        {
+                            int want = Math.Max(1, (int)Math.Round(perHour * loud.Length / 3600.0));
+                            var found = Highlights.Find(loud.Length, new List<HeatPoint>(), loud, new List<Word>(), want, minLen, maxLen, 0, 0, null, false);
+                            foreach (var c in found.OrderBy(c => c.Start))
+                            {
+                                c.Start += processed; c.End += processed;
+                                c.Index = job.Clips.Count + 1;
+                                job.Clips.Add(c);
+                                int n = c.Index;
+                                await BuildClipAsync(job, c, file, size, new List<Word>(), work, p => Status(job, "Ефір: кліп " + n + " — " + p + "%", 5), ct);
+                                log("Ефір: готовий кліп " + n + " (" + TimeSpan.FromSeconds(c.Start).ToString(@"h\:mm\:ss") + ")");
+                                if (job.AutoPublish && job.ChannelId != null)
+                                {
+                                    var ch = settings.FindChannel(job.ChannelId);
+                                    if (ch != null)
+                                    {
+                                        try { await PublishAsync(job, c, ch, ct); }
+                                        catch (OperationCanceledException) { throw; }
+                                        catch (Exception ex) { c.Status = "Помилка: " + ex.Message; log("Публікація: " + ex.Message); }
+                                    }
+                                }
+                            }
+                            processed += loud.Length;
+                            changed(job);
+                        }
+                        if (recDone) break;
+                    }
+                    if (!recDone) { rec.Cancel(); try { await recTask; } catch { } }
+                }
+                if (ct.IsCancellationRequested) break;
+                // запис обірвався: ефір закінчився чи просто збій мережі?
+                try
+                {
+                    var again = await Downloader.GetInfoAsync(job.Url, ct);
+                    ended = !again.IsLive;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { ended = true; }
+                if (!ended && DateTime.UtcNow < deadline) log("Ефір: з’єднання обірвалось — підключаюсь знову.");
+            }
+            ct.ThrowIfCancellationRequested();
+            job.Done = true;
+            Status(job, "Ефір записано — " + job.Clips.Count + " кліпів", 100);
+        }
+
+        /// <summary>Гучність кожної секунди шматка запису (рахує стільки, скільки вже записано).</summary>
+        static async Task<double[]> LiveLoudnessAsync(string file, double from, double len, CancellationToken ct)
+        {
+            const int rate = 8000;
+            var list = new List<double>();
+            var args = "-v error -ss " + from.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                       (len < 1e6 ? " -t " + len.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) : "") +
+                       " -i " + Tools.Q(file) + " -vn -ac 1 -ar " + rate + " -f s16le -";
+            await Tools.RunBinaryAsync(Tools.FFmpeg, args, stream =>
+            {
+                var buf = new byte[rate * 2];
+                double sum = 0; int count = 0, n, carry = 0;
+                while ((n = stream.Read(buf, carry, buf.Length - carry)) > 0)
+                {
+                    int total = carry + n, samples = total / 2;
+                    for (int i = 0; i < samples; i++)
+                    {
+                        double v = BitConverter.ToInt16(buf, i * 2) / 32768.0;
+                        sum += v * v; count++;
+                        if (count == rate) { list.Add(Math.Sqrt(sum / count)); sum = 0; count = 0; }
+                    }
+                    carry = total - samples * 2;
+                    if (carry > 0) buf[0] = buf[total - 1];
+                }
+            }, ct);
+            return list.ToArray();
         }
 
         public async Task PublishAsync(Job job, ClipItem clip, ChannelInfo ch, CancellationToken ct)

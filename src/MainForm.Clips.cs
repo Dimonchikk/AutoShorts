@@ -429,9 +429,94 @@ namespace AutoShorts
                         t.Item2.Status = "Помилка: " + ex.Message;
                         Log("Помилка публікації: " + ex.Message);
                         UpdateClipRows(t.Item1);
-                        if (ex.Message.Contains("ліміт")) break;
+                        if (ex.Message.Contains("ліміт"))
+                        {
+                            MarkPending(ch, items.SkipWhile(x => x != t).Select(x => Tuple.Create(x.Item1, x.Item2)));
+                            break;
+                        }
                     }
                     AppSettings.SaveJobs(jobs);
+                }
+            }
+            finally
+            {
+                publishing = false;
+                RefreshClips();
+                RefreshCalendar();
+                UpdateNav();
+            }
+        }
+    
+        /// <summary>
+        /// Денний ліміт YouTube API вичерпано (≈6 завантажень на день на один Client ID).
+        /// Кліпи стають у чергу й самі завантажаться після оновлення ліміту — опівночі за тихоокеанським часом.
+        /// </summary>
+        void MarkPending(ChannelInfo ch, IEnumerable<Tuple<Job, ClipItem>> rest)
+        {
+            ch.QuotaUntilUtc = NextQuotaResetUtc();
+            int n = 0;
+            foreach (var t in rest)
+            {
+                if (t.Item2.Published) continue;
+                t.Item2.PendingChannelId = ch.Id;
+                t.Item2.Status = "Чекає ліміту YouTube — продовжу о " + BestTime.ToKyiv(ch.QuotaUntilUtc).ToString("HH:mm dd.MM");
+                n++;
+                UpdateClipRows(t.Item1);
+            }
+            try { settings.Save(); } catch { }
+            AppSettings.SaveJobs(jobs);
+            Log("Ліміт YouTube на сьогодні вичерпано. " + n + " кліп(ів) завантажаться автоматично після " +
+                BestTime.ToKyiv(ch.QuotaUntilUtc).ToString("HH:mm dd.MM") + " (за Києвом), якщо програма буде відкрита.");
+        }
+
+        static DateTime NextQuotaResetUtc()
+        {
+            // ліміт оновлюється опівночі за тихоокеанським часом (Каліфорнія)
+            try
+            {
+                TimeZoneInfo pt;
+                try { pt = TimeZoneInfo.FindSystemTimeZoneById("Pacific Standard Time"); }
+                catch { pt = TimeZoneInfo.FindSystemTimeZoneById("America/Los_Angeles"); }
+                var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, pt);
+                var next = DateTime.SpecifyKind(now.Date.AddDays(1).AddMinutes(5), DateTimeKind.Unspecified);
+                return TimeZoneInfo.ConvertTimeToUtc(next, pt);
+            }
+            catch { return DateTime.UtcNow.Date.AddDays(DateTime.UtcNow.Hour >= 8 ? 1 : 0).AddHours(8).AddMinutes(5); }
+        }
+
+        async void RetryPending()
+        {
+            if (publishing) return;
+            var waiting = jobs.SelectMany(j => j.Clips.Where(c => c.PendingChannelId != null && !c.Published).Select(c => Tuple.Create(j, c))).ToList();
+            if (waiting.Count == 0) return;
+            publishing = true;
+            UpdateNav();
+            try
+            {
+                foreach (var grp in waiting.GroupBy(t => t.Item2.PendingChannelId))
+                {
+                    var ch = settings.FindChannel(grp.Key);
+                    if (ch == null) { foreach (var t in grp) t.Item2.PendingChannelId = null; continue; }
+                    if (DateTime.UtcNow < ch.QuotaUntilUtc) continue;
+                    var list = grp.OrderByDescending(t => t.Item2.Virality).ToList();
+                    Log("Продовжую публікацію на «" + ch.Title + "»: " + list.Count + " кліп(ів) у черзі.");
+                    foreach (var t in list)
+                    {
+                        try
+                        {
+                            await pipeline.PublishAsync(t.Item1, t.Item2, ch, CancellationToken.None);
+                            t.Item2.PendingChannelId = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (ex.Message.Contains("ліміт")) { MarkPending(ch, list.SkipWhile(x => x != t)); break; }
+                            t.Item2.PendingChannelId = null;
+                            t.Item2.Status = "Помилка: " + ex.Message;
+                            Log("Помилка публікації: " + ex.Message);
+                        }
+                        UpdateClipRows(t.Item1);
+                        AppSettings.SaveJobs(jobs);
+                    }
                 }
             }
             finally

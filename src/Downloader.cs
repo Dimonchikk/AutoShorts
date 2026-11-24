@@ -26,6 +26,7 @@ namespace AutoShorts
         public bool CaptionAuto;
         public object Raw;
         public List<string> CaptionLangs = new List<string>();   // мови оригінальних субтитрів
+        public bool IsLive;                                       // прямий ефір іде зараз
     }
 
     static class Downloader
@@ -36,6 +37,15 @@ namespace AutoShorts
             var d = Path.Combine(AppSettings.LocalDir, "work", safe);
             Directory.CreateDirectory(d);
             return d;
+        }
+
+        /// <summary>Пряме посилання на потік ефіру (HLS) для запису FFmpeg.</summary>
+        public static async Task<string> LiveStreamUrlAsync(string url, CancellationToken ct)
+        {
+            var r = await Tools.RunAsync(Tools.YtDlp, "-g --no-warnings --no-playlist -f \"b[height<=1080]/b\" " + Tools.Q(url), null, null, ct);
+            var line = (r.Output ?? "").Split('\n').Select(x => x.Trim()).FirstOrDefault(x => x.StartsWith("http"));
+            if (line == null) throw new Exception("Не вдалося отримати потік ефіру: " + r.Tail(300));
+            return line;
         }
 
         public static async Task<VideoInfo> GetInfoAsync(string url, CancellationToken ct)
@@ -67,6 +77,7 @@ namespace AutoShorts
                 info.Heatmap.Add(hp);
             }
             info.Raw = o;
+            info.IsLive = (Json.Get(o, "is_live") is bool && (bool)Json.Get(o, "is_live")) || Json.Str(o, "live_status") == "is_live";
             PickCaptions(o, info, null, null);
             return info;
         }

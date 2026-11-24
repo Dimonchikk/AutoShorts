@@ -24,6 +24,28 @@ namespace AutoShorts
         public int MaxWords = 3;
         public int MarginV = 560;             // відступ знизу (з 1920)
         public bool Bold = true;
+        public bool Karaoke;                  // слово, що звучить, заливається кольором (\k), рядок стоїть на місці
+        public int Align = 2;                 // 2 — низ, 5 — центр, 8 — верх
+        public float Scale = 1;               // масштаб гачка під формат кадру
+
+        /// <summary>Розміщення під формат кадру, позицію («Низ», «Центр», «Верх») і розмір у %.</summary>
+        public SubStyle Placed(string position, int sizePct, System.Drawing.Size o)
+        {
+            var c = (SubStyle)MemberwiseClone();
+            double k = Math.Sqrt(o.Width * (double)o.Height / (1080.0 * 1920.0));
+            if (sizePct < 50 || sizePct > 200) sizePct = 100;
+            c.Size = (int)Math.Round(Size * k * sizePct / 100.0);
+            c.OutlineWidth = Math.Max(1, (int)Math.Round(OutlineWidth * k * Math.Sqrt(sizePct / 100.0)));
+            c.Scale = (float)k;
+            double hk = o.Height / 1920.0;
+            switch (position)
+            {
+                case "Центр": c.Align = 5; c.MarginV = 0; break;
+                case "Верх": c.Align = 8; c.MarginV = (int)Math.Round(o.Height * 0.21); break;
+                default: c.Align = 2; c.MarginV = (int)Math.Round(MarginV * hk); break;
+            }
+            return c;
+        }
 
         /// <summary>Копія стилю з іншим шрифтом.</summary>
         public SubStyle With(string font, bool bold)
@@ -42,6 +64,7 @@ namespace AutoShorts
             new SubStyle { Name = "Опус (зелений)", Active = "2BFF4A", Keyword = "FFE500" },
             new SubStyle { Name = "Жовтий акцент", Active = "FFE500", Keyword = "2BFF4A", Font = "Impact", Size = 104, OutlineWidth = 6 },
             new SubStyle { Name = "Караоке", Active = "FFE500", Keyword = null, Progressive = true, MaxWords = 4, Pop = false },
+            new SubStyle { Name = "Караоке-заливка", Active = "FFE500", Keyword = null, Karaoke = true, MaxWords = 4, Pop = false },
             new SubStyle { Name = "Плашка", Font = "Arial", Size = 80, Active = "FFE500", Keyword = null, Box = true, Pop = false, OutlineWidth = 14, Shadow = 0 },
             new SubStyle { Name = "Мінімал", Font = "Segoe UI Semibold", Size = 70, Active = null, Keyword = null, Pop = false, Upper = false, MaxWords = 5, OutlineWidth = 4, Shadow = 1, MarginV = 380 },
         };
@@ -111,35 +134,41 @@ namespace AutoShorts
 
         public static readonly string[] HookStyles = { "Класичний", "Біла плашка", "Рожева плашка", "Без плашки" };
 
-        static string HookStyleLine(string name)
+        static string HookStyleLine(string name, float k, int marginV, int marginLR)
         {
+            string line;
             switch (name)
             {
-                case "Біла плашка": return "Style: Hook,Arial Black,76,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1";
-                case "Рожева плашка": return "Style: Hook,Arial Black,76,&H00FFFFFF,&H00FFFFFF,&H00882EFF,&H00882EFF,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1";
-                case "Без плашки": return "Style: Hook,Arial Black,84,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,8,80,80,260,1";
-                default: return "Style: Hook,Arial Black,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1";
+                case "Біла плашка": line = "Style: Hook,Arial Black,{S76},&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,{S18},0,8,{M},{M},{V},1"; break;
+                case "Рожева плашка": line = "Style: Hook,Arial Black,{S76},&H00FFFFFF,&H00FFFFFF,&H00882EFF,&H00882EFF,-1,0,0,0,100,100,0,0,3,{S18},0,8,{M},{M},{V},1"; break;
+                case "Без плашки": line = "Style: Hook,Arial Black,{S84},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{S7},3,8,{M},{M},{V},1"; break;
+                default: line = "Style: Hook,Arial Black,{S78},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,3,{S18},0,8,{M},{M},{V},1"; break;
             }
+            line = System.Text.RegularExpressions.Regex.Replace(line, @"\{S(\d+)\}", m => Math.Max(1, (int)Math.Round(int.Parse(m.Groups[1].Value) * k)).ToString());
+            return line.Replace("{M}", marginLR.ToString()).Replace("{V}", marginV.ToString());
         }
 
-        public static string BuildAss(List<Word> words, SubStyle st, string hook, double duration, HashSet<string> keywords, string hookStyle = null)
+        public static string BuildAss(List<Word> words, SubStyle st, string hook, double duration, HashSet<string> keywords, string hookStyle = null,
+                                      System.Drawing.Size outSize = default(System.Drawing.Size))
         {
+            if (outSize.Width == 0) outSize = new System.Drawing.Size(1080, 1920);
             var sb = new StringBuilder();
             sb.AppendLine("[Script Info]");
             sb.AppendLine("ScriptType: v4.00+");
-            sb.AppendLine("PlayResX: 1080");
-            sb.AppendLine("PlayResY: 1920");
+            sb.AppendLine("PlayResX: " + outSize.Width);
+            sb.AppendLine("PlayResY: " + outSize.Height);
             sb.AppendLine("WrapStyle: 0");
             sb.AppendLine("ScaledBorderAndShadow: yes");
             sb.AppendLine();
             sb.AppendLine("[V4+ Styles]");
             sb.AppendLine("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding");
             sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                "Style: Main,{0},{1},{2},{2},{3},{4},{9},0,0,0,100,100,1,0,{5},{6},{7},2,70,70,{8},1",
-                st.Font, st.Size, Color(st.Primary, "00"),
+                "Style: Main,{0},{1},{2},{10},{3},{4},{9},0,0,0,100,100,1,0,{5},{6},{7},{11},{12},{12},{8},1",
+                st.Font, st.Size, Color(st.Karaoke && st.Active != null ? st.Active : st.Primary, "00"),
                 st.Box ? Color("000000", "40") : Color(st.Outline, "00"),
-                Color("000000", "80"), st.Box ? 3 : 1, st.OutlineWidth, st.Shadow, st.MarginV, st.Bold ? -1 : 0));
-            sb.AppendLine(HookStyleLine(hookStyle));
+                Color("000000", "80"), st.Box ? 3 : 1, st.OutlineWidth, st.Shadow, st.MarginV, st.Bold ? -1 : 0,
+                Color(st.Primary, "00"), st.Align, (int)Math.Round(outSize.Width * 0.065)));
+            sb.AppendLine(HookStyleLine(hookStyle, st.Scale, (int)Math.Round(outSize.Height * 0.135), (int)Math.Round(outSize.Width * 0.074)));
             sb.AppendLine();
             sb.AppendLine("[Events]");
             sb.AppendLine("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text");
@@ -162,6 +191,23 @@ namespace AutoShorts
                     if (nextStart - gEnd < 0.6) gEnd = nextStart;
                 }
                 else gEnd = Math.Min(duration, gEnd + 0.4);
+
+                if (st.Karaoke)
+                {
+                    // караоке (з ViralCut): уся група на екрані, слово заливається кольором у момент, коли звучить
+                    var kt = new StringBuilder();
+                    double g0 = grp[0].Start;
+                    for (int k = 0; k < grp.Count; k++)
+                    {
+                        double ws = grp[k].Start, we = k + 1 < grp.Count ? grp[k + 1].Start : gEnd;
+                        int cs = Math.Max(1, (int)Math.Round((we - ws) * 100));
+                        if (k > 0) kt.Append(' ');
+                        kt.Append("{\\k").Append(cs).Append("}").Append(Display(grp[k].Text, st));
+                    }
+                    if (gEnd > g0 + 0.05)
+                        sb.AppendLine("Dialogue: 0," + Time(g0) + "," + Time(gEnd) + ",Main,,0,0,0,," + kt);
+                    continue;
+                }
 
                 for (int k = 0; k < grp.Count; k++)
                 {

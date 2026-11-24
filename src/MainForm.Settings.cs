@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -66,7 +67,12 @@ namespace AutoShorts
             tagsTplBox = new TextBox { Text = settings.TagsTemplate };
             minNum = new Stepper(110) { Minimum = 10, Maximum = 170, Value = Math.Max(10, Math.Min(170, settings.MinSeconds)) };
             maxNum = new Stepper(110) { Minimum = 15, Maximum = 180, Value = Math.Max(15, Math.Min(180, settings.MaxSeconds)) };
-            defClipsNum = new Stepper(110) { Minimum = 1, Maximum = 20, Value = Math.Max(1, Math.Min(20, settings.ClipsPerVideo)) };
+            defClipsNum = new Stepper(110) { Minimum = 1, Maximum = 200, Value = Math.Max(1, Math.Min(200, settings.ClipsPerVideo)) };
+            encoderDd = Dd(null, "Авто — відеокарта, якщо є", "Відеокарта", "Процесор");
+            encoderDd.SelectedIndex = settings.Encoder == "gpu" ? 1 : settings.Encoder == "cpu" ? 2 : 0;
+            encoderInfo = new Label { AutoSize = true, ForeColor = Theme.Secondary, Margin = new Padding(8, 6, 3, 3) };
+            powerDd = Dd(null, PowerLevels.Select(p => (object)p[0]).ToArray());
+            powerDd.SelectedIndex = Math.Max(0, Array.FindIndex(PowerLevels, p => p[1] == settings.Power.ToString()));
             defStyleCombo = Dd(null);
             defStyleCombo.ItemImage = o => StylePreview.Get(SubtitleStyles.Get(o as string), (int)(120 * Theme.Dpi), (int)(44 * Theme.Dpi));
             foreach (var st in SubtitleStyles.All) defStyleCombo.Items.Add(st.Name);
@@ -122,6 +128,9 @@ namespace AutoShorts
             addWide(proc, faceCheck);
             addWide(proc, hookCheck);
             addWide(proc, coverCheck);
+            add(proc, "Кодування", Row(encoderDd, encoderInfo));
+            add(proc, "Потужність", Row(powerDd, Lbl("менше — тихіше й холодніше, але довше")));
+            DetectEncoderInfo();
 
             var link = new LinkLabel { Text = "Сторінка програми", AutoSize = true, LinkColor = Theme.Accent, BackColor = Theme.Bg, ActiveLinkColor = Theme.AccentPressed, LinkBehavior = LinkBehavior.HoverUnderline };
             link.LinkClicked += (s, e) => OpenUrl("https://github.com/" + AppVersion.Repo);
@@ -182,6 +191,25 @@ namespace AutoShorts
             accountsList.ResumeLayout(true);
         }
 
+        Dropdown encoderDd, powerDd;
+        Label encoderInfo;
+        static readonly string[][] PowerLevels =
+        {
+            new[] { "100% — максимум", "100" }, new[] { "75%", "75" }, new[] { "50% — тихо", "50" }, new[] { "25% — фоном", "25" },
+        };
+
+        async void DetectEncoderInfo()
+        {
+            encoderInfo.Text = "перевіряю відеокарту…";
+            try
+            {
+                if (!File.Exists(Tools.FFmpeg)) { encoderInfo.Text = "перевірю, коли завантажиться FFmpeg"; return; }
+                var g = await Encoders.DetectGpuAsync(CancellationToken.None);
+                encoderInfo.Text = g == null ? "відеокарта не підтримує кодування — буде процесор" : "знайдено: " + Encoders.Label(g);
+            }
+            catch (Exception ex) { encoderInfo.Text = ex.Message; }
+        }
+
         void SaveSettings()
         {
             if (maxNum.Value < minNum.Value + 5) maxNum.Value = Math.Min(maxNum.Maximum, minNum.Value + 5);
@@ -198,6 +226,9 @@ namespace AutoShorts
             settings.FaceFraming = faceCheck.Checked;
             settings.HookTitle = hookCheck.Checked;
             settings.UploadCover = coverCheck.Checked;
+            settings.Encoder = encoderDd.SelectedIndex == 1 ? "gpu" : encoderDd.SelectedIndex == 2 ? "cpu" : "auto";
+            settings.Power = int.Parse(PowerLevels[Math.Max(0, powerDd.SelectedIndex)][1]);
+            Tools.Power = settings.Power;
             try
             {
                 Directory.CreateDirectory(settings.OutputFolder);

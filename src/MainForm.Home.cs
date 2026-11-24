@@ -423,11 +423,17 @@ namespace AutoShorts
                             if (ch != null)
                             {
                                 publishing = true;
-                                foreach (var c in job.Clips.Where(c => !c.Published).OrderByDescending(c => c.Virality).ToList())
+                                var toPublish = job.Clips.Where(c => !c.Published).OrderByDescending(c => c.Virality).ToList();
+                                foreach (var c in toPublish)
                                 {
                                     try { await pipeline.PublishAsync(job, c, ch, ct); }
                                     catch (OperationCanceledException) { throw; }
-                                    catch (Exception ex) { c.Status = "Помилка: " + ex.Message; Log("Публікація: " + ex.Message); break; }
+                                    catch (Exception ex)
+                                    {
+                                        c.Status = "Помилка: " + ex.Message; Log("Публікація: " + ex.Message);
+                                        if (ex.Message.Contains("ліміт")) MarkPending(ch, toPublish.SkipWhile(x => x != c).Select(x => Tuple.Create(job, x)));
+                                        break;
+                                    }
                                 }
                                 publishing = false;
                                 job.Status = "Готово, опубліковано";

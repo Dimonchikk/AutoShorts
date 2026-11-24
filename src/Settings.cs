@@ -26,6 +26,8 @@ namespace AutoShorts
         public bool RequirePreview { get; set; }
         public bool UploadCover { get; set; }
         public string DefaultChannelId { get; set; }
+        public string Encoder { get; set; }          // "auto" | "gpu" | "cpu"
+        public int Power { get; set; }               // скільки потужності віддавати обробці, %
         public List<ChannelInfo> Channels { get; set; }
         public List<PublishedItem> Published { get; set; }
 
@@ -47,6 +49,8 @@ namespace AutoShorts
             Published = new List<PublishedItem>();
             Recipe = new Recipe();
             NavCollapsed = true;
+            Encoder = "auto";
+            Power = 100;
         }
 
         public static string AppDir
@@ -87,6 +91,12 @@ namespace AutoShorts
             if (s.MinSeconds < 10) s.MinSeconds = 30;
             if (s.MaxSeconds < s.MinSeconds + 5) s.MaxSeconds = Math.Max(60, s.MinSeconds + 5);
             if (s.ClipsPerVideo < 1) s.ClipsPerVideo = 3;
+            if (s.ClipsPerVideo > 200) s.ClipsPerVideo = 200;
+            if (s.Power < 25 || s.Power > 100) s.Power = 100;
+            if (string.IsNullOrEmpty(s.Encoder)) s.Encoder = "auto";
+            if (string.IsNullOrEmpty(s.Recipe.Aspect)) s.Recipe.Aspect = "9:16";
+            if (string.IsNullOrEmpty(s.Recipe.SubPosition)) s.Recipe.SubPosition = "Низ";
+            if (s.Recipe.SubSize < 50) s.Recipe.SubSize = 100;
             if (SubtitleStyles.Find(s.SubtitleStyle) == null) s.SubtitleStyle = SubtitleStyles.All[0].Name;
             return s;
         }

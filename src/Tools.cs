@@ -159,6 +159,34 @@ namespace AutoShorts
             return psi;
         }
 
+        /// <summary>Скільки потужності віддавати FFmpeg, % (з ViralCut: щоб ноутбук не вив і не грівся).</summary>
+        public static int Power = 100;
+
+        /// <summary>Скільки потоків дати кодувальнику при поточній потужності.</summary>
+        public static int Threads
+        {
+            get { return Math.Max(1, (int)Math.Round(Environment.ProcessorCount * Math.Max(25, Math.Min(100, Power)) / 100.0)); }
+        }
+
+        static void Tame(Process p, string exe)
+        {
+            if (Power >= 100) return;
+            if (!exe.EndsWith("ffmpeg.exe", StringComparison.OrdinalIgnoreCase)) return;
+            try { p.PriorityClass = Power <= 50 ? ProcessPriorityClass.Idle : ProcessPriorityClass.BelowNormal; } catch { }
+            try
+            {
+                // обмежуємо ядра: FFmpeg не займе більше, ніж дозволено
+                int n = Threads, cores = Environment.ProcessorCount;
+                if (n < cores && cores <= 64)
+                {
+                    long mask = 0;
+                    for (int i = 0; i < n; i++) mask |= 1L << (cores - 1 - i);   // старші ядра — молодші лишаються для інтерфейсу
+                    p.ProcessorAffinity = (IntPtr)mask;
+                }
+            }
+            catch { }
+        }
+
         public static Task<ProcResult> RunAsync(string exe, string args, string workDir, Action<string> onLine, CancellationToken ct)
         {
             return Task.Run(() =>
@@ -181,6 +209,7 @@ namespace AutoShorts
                         if (onLine != null) onLine(e.Data);
                     };
                     p.Start();
+                    Tame(p, exe);
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
                     while (!p.WaitForExit(250))
@@ -212,6 +241,7 @@ namespace AutoShorts
                     p.StartInfo.StandardOutputEncoding = null;
                     p.ErrorDataReceived += (s, e) => { };
                     p.Start();
+                    Tame(p, exe);
                     p.BeginErrorReadLine();
                     using (ct.Register(() => { try { p.Kill(); } catch { } }))
                     {

@@ -30,6 +30,7 @@ namespace AutoShorts
         public string AvatarPath { get; set; }             // аватарка каналу (локальний файл)
         public string Handle { get; set; }                 // @нікнейм
         public DateTime VideosUpdatedUtc { get; set; }     // коли календар востаннє оновлювався з YouTube
+        public DateTime QuotaUntilUtc { get; set; }        // до цього часу денний ліміт YouTube вичерпано
         public int ShortsPerDay { get; set; }
         /// <summary>168 значень: (день тижня за Києвом) * 24 + година.</summary>
         public List<double> HourScores { get; set; }
@@ -92,7 +93,9 @@ namespace AutoShorts
 
         public double Duration { get { return End - Start; } }
         public double OutDuration { get; set; }
-        public string FacePath { get; set; }             // траєкторія кадру за обличчям "t:x;…" (null — статичний)          // тривалість готового кліпу (після вирізання пауз)
+        public string FacePath { get; set; }             // траєкторія кадру за обличчям "t:x;…" (null — статичний)
+        public string PendingChannelId { get; set; }
+        public string SourceFile { get; set; }           // з якого файлу різали (для ефірів — частина запису)     // чекає на публікацію (вичерпано денний ліміт YouTube)
     }
 
     /// <summary>Набір обробки для проєкту (як «Recipe» в OpusClip). Усе працює без ШІ — FFmpeg і субтитри YouTube.</summary>
@@ -116,12 +119,27 @@ namespace AutoShorts
         public bool SkipAds { get; set; }            // не брати рекламні вставки (з ViralCut)
         public bool TrackFace { get; set; }          // кадр рухається за обличчям (з ViralCut)
         public string FontName { get; set; }         // шрифт субтитрів (null — зі стилю)
+        public string Aspect { get; set; }           // "9:16", "1:1", "4:5", "16:9"
+        public string SubPosition { get; set; }      // "Низ", "Центр", "Верх"
+        public int SubSize { get; set; }             // розмір субтитрів у % (100 — як у стилі)
 
         public Recipe()
         {
             Captions = true; Hook = true; HookStyle = "Класичний"; Layout = "crop";
             EnhanceAudio = true; ColorBoost = false; AutoZoom = false; Fades = true; LogoPos = "Праворуч угорі";
             CutPauses = true; SkipAds = true; TrackFace = true;
+            Aspect = "9:16"; SubPosition = "Низ"; SubSize = 100;
+        }
+
+        public static System.Drawing.Size OutSize(string aspect)
+        {
+            switch (aspect)
+            {
+                case "1:1": return new System.Drawing.Size(1080, 1080);
+                case "4:5": return new System.Drawing.Size(1080, 1350);
+                case "16:9": return new System.Drawing.Size(1920, 1080);
+                default: return new System.Drawing.Size(1080, 1920);
+            }
         }
 
         public Recipe Clone() { return (Recipe)MemberwiseClone(); }
@@ -154,6 +172,14 @@ namespace AutoShorts
         public string CaptionFile { get; set; }
         public Recipe Recipe { get; set; }
         public DateTime AddedUtc { get; set; }
+        // прямий ефір: запис і нарізка під час трансляції
+        public bool IsLive { get; set; }
+        public int LiveMaxMinutes { get; set; }      // 0 — до кінця ефіру
+        public double LiveProcessed { get; set; }    // до якої секунди запису вже шукали моменти
+        public int CamX { get; set; }                // вікно камери стримера в кадрі (0 — не знайдено)
+        public int CamY { get; set; }
+        public int CamW { get; set; }
+        public int CamH { get; set; }
 
         public bool IsLocal()
         {

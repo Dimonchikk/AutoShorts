@@ -19,7 +19,19 @@ namespace AutoShorts
 
         CoverView srcCover;
         Label srcTitle, srcMeta, srcSrt, rangeInfo, logoInfo;
-        Dropdown langDd, layoutDd, clipsDd, lenDd, translateDd, logoPosDd, channelCombo;
+        Dropdown langDd, layoutDd, clipsDd, lenDd, translateDd, logoPosDd, channelCombo, aspectDd, subPosDd, subSizeDd, liveDd;
+        Control liveRow;
+        static readonly int[] ClipCounts = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200 };
+        static readonly string[][] Aspects =
+        {
+            new[] { "9:16 — Shorts, Reels, TikTok", "9:16" },
+            new[] { "4:5 — Instagram", "4:5" },
+            new[] { "1:1 — квадрат", "1:1" },
+            new[] { "16:9 — звичайне відео", "16:9" },
+        };
+        static readonly string[] SubPositions = { "Низ", "Центр", "Верх" };
+        static readonly string[][] SubSizes = { new[] { "Малий", "80" }, new[] { "Звичайний", "100" }, new[] { "Великий", "120" }, new[] { "Дуже великий", "140" } };
+        static readonly string[][] LiveLimits = { new[] { "До кінця ефіру", "0" }, new[] { "30 хвилин", "30" }, new[] { "1 година", "60" }, new[] { "2 години", "120" }, new[] { "4 години", "240" } };
         RangeBar rangeBar;
         TextBox rangeFromBox, rangeToBox, keywordsBox;
         Toggle captionsToggle, hookToggle, audioToggle, zoomToggle, colorToggle, fadeToggle, autoPublishCheck, pausesToggle, adsToggle, trackToggle;
@@ -118,8 +130,8 @@ namespace AutoShorts
             times.Controls.Add(rangeInfo, 1, 0);
             times.Controls.Add(new Field(rangeToBox, 0, null) { Dock = DockStyle.Fill }, 2, 0);
 
-            layoutDd = Dd("Макет", "9:16, кадр за обличчям", "9:16, ціле відео на розмитому фоні");
-            layoutDd.SelectedIndexChanged += (s, e) => { if (!loadingCreate) { recipe.Layout = layoutDd.SelectedIndex == 1 ? "fit" : "crop"; UpdateSummary(); } };
+            layoutDd = Dd("Макет", "Кадр за обличчям", "Ціле відео на розмитому фоні", "Стрім: камера зверху, гра знизу");
+            layoutDd.SelectedIndexChanged += (s, e) => { if (!loadingCreate) { recipe.Layout = layoutDd.SelectedIndex == 1 ? "fit" : layoutDd.SelectedIndex == 2 ? "stream" : "crop"; UpdateSummary(); } };
             srtBtnLabel();
             var srtBtn = Btn("Завантажити SRT", (s, e) => PickSrt(), ButtonKind.Plain, Glyphs.Upload);
             var rangeHead = Header("Відрізок відео", Btn("Усе відео", (s, e) => { rangeBar.Start = 0; rangeBar.End = 0; rangeBar.Invalidate(); ShowRangeText(); UpdateSummary(); }, ButtonKind.Plain));
@@ -140,7 +152,12 @@ namespace AutoShorts
             srcCard.Padding = new Padding(20);
 
             // --- нарізка ---
-            clipsDd = Dd("Кліпів", Enumerable.Range(1, 15).Select(i => (object)i).ToArray());
+            clipsDd = Dd("Кліпів", ClipCounts.Select(i => (object)i).ToArray());
+            aspectDd = Dd("Формат", Aspects.Select(a => (object)a[0]).ToArray());
+            aspectDd.SelectedIndexChanged += (s, e) => { if (!loadingCreate) { recipe.Aspect = Aspects[Math.Max(0, aspectDd.SelectedIndex)][1]; UpdateSummary(); } };
+            liveDd = Dd("Записувати", LiveLimits.Select(a => (object)a[0]).ToArray());
+            liveDd.SelectedIndex = 0;
+            liveDd.SelectedIndexChanged += (s, e) => UpdateSummary();
             lenDd = Dd("Довжина", Lengths.Select(l => (object)l[0]).ToArray());
             clipsDd.SelectedIndexChanged += (s, e) => UpdateSummary();
             lenDd.SelectedIndexChanged += (s, e) => UpdateSummary();
@@ -149,7 +166,9 @@ namespace AutoShorts
             pausesToggle = T(null); pausesToggle.CheckedChanged += (s, e) => { recipe.CutPauses = pausesToggle.Checked; UpdateSummary(); };
             adsToggle = T(null); adsToggle.CheckedChanged += (s, e) => { recipe.SkipAds = adsToggle.Checked; UpdateSummary(); };
             var cutCard = CardOf(Stack(
-                SettingRow(Glyphs.Cut, "Нарізка", "Скільки кліпів і якої довжини зробити з кожного відео", clipsDd, lenDd), 0,
+                SettingRow(Glyphs.Cut, "Нарізка", "До 200 кліпів з одного відео", clipsDd, lenDd), 0,
+                SettingRow(Glyphs.Play, "Формат кадру", "9:16, 4:5, 1:1 або 16:9", aspectDd), 0,
+                (liveRow = SettingRow(Glyphs.Clock, "Прямий ефір", "Іде трансляція: запишу її і наріжу моменти по ходу — кількість кліпів рахується на годину ефіру", liveDd)), 0,
                 SettingRow(Glyphs.Clock, "Вирізати паузи", "Прибирає мовчання всередині кліпу — темп як у топових шортсах", pausesToggle), 0,
                 SettingRow(Glyphs.Stop, "Пропускати рекламу", "Вставки з «промокод», «посилання в описі», «спонсор» не потрапляють у кліпи", adsToggle), 0,
                 Caption("Моменти, які обов’язково включити (необов’язково)"), 0,
@@ -171,6 +190,10 @@ namespace AutoShorts
             hookGallery.ImageFor = (name, sz) => HookPreview.Get(name, sz.Width, sz.Height);
             hookGallery.SelectedIndexChanged += (s, e) => { recipe.HookStyle = hookGallery.SelectedItem; UpdateSummary(); };
 
+            subPosDd = Dd("Де", SubPositions.Select(p => (object)p).ToArray());
+            subPosDd.SelectedIndexChanged += (s, e) => { if (!loadingCreate) { recipe.SubPosition = subPosDd.SelectedItem as string; UpdateSummary(); } };
+            subSizeDd = Dd("Розмір", SubSizes.Select(p => (object)p[0]).ToArray());
+            subSizeDd.SelectedIndexChanged += (s, e) => { if (!loadingCreate) { recipe.SubSize = int.Parse(SubSizes[Math.Max(0, subSizeDd.SelectedIndex)][1]); UpdateSummary(); } };
             fontDd = Dd(null, new object[] { Fonts.FromStyle }.Concat(Fonts.All.Select(f => (object)f.Label)).ToArray());
             fontDd.ItemImage = o => FontPreview(o as string);
             fontDd.SelectedIndexChanged += async (s, e) =>
@@ -201,6 +224,7 @@ namespace AutoShorts
                 SettingRow(Glyphs.Captions, "Субтитри", "Великі слова по 2–4 з підсвіткою того, що звучить, і ключових слів", captionsToggle), 0,
                 styleGallery, 0,
                 SettingRow(Glyphs.Captions, "Шрифт субтитрів", "29 шрифтів з кирилицею — завантажується лише вибраний", fontDd), 0,
+                SettingRow(Glyphs.Captions, "Положення і розмір", "Внизу, по центру чи вгорі кадру — і наскільки великі слова", subPosDd, subSizeDd), 0,
                 SettingRow(Glyphs.Link, "Переклад субтитрів", "Автопереклад YouTube — без ключів і без моделей", translateDd), 0,
                 SettingRow(Glyphs.Sparkle, "Заголовок-гачок", "Перше речення фрагмента великим текстом у перші 3 секунди", hookToggle), 0,
                 hookGallery, 0,
@@ -343,7 +367,13 @@ namespace AutoShorts
             srcSrt.Text = "";
 
             // значення за замовчуванням
-            clipsDd.SelectedItem = Math.Max(1, Math.Min(15, settings.ClipsPerVideo));
+            clipsDd.SelectedItem = ClipCounts.OrderBy(c => Math.Abs(c - settings.ClipsPerVideo)).First();
+            aspectDd.SelectedIndex = Math.Max(0, Array.FindIndex(Aspects, a => a[1] == (recipe.Aspect ?? "9:16")));
+            subPosDd.SelectedItem = SubPositions.Contains(recipe.SubPosition) ? recipe.SubPosition : "Низ";
+            subSizeDd.SelectedIndex = Math.Max(0, Array.FindIndex(SubSizes, a => a[1] == (recipe.SubSize > 0 ? recipe.SubSize : 100).ToString()));
+            if (subSizeDd.SelectedIndex < 0) subSizeDd.SelectedIndex = 1;
+            liveDd.SelectedIndex = 0;
+            liveRow.Visible = false;
             lenDd.SelectedIndex = 0;
             keywordsBox.Text = recipe.Keywords ?? "";
             captionsToggle.Checked = recipe.Captions;
@@ -359,7 +389,7 @@ namespace AutoShorts
             adsToggle.Checked = recipe.SkipAds;
             trackToggle.Checked = recipe.TrackFace;
             fontDd.SelectedItem = Fonts.Find(recipe.FontName) != null ? recipe.FontName : Fonts.FromStyle;
-            layoutDd.SelectedIndex = recipe.Layout == "fit" ? 1 : 0;
+            layoutDd.SelectedIndex = recipe.Layout == "fit" ? 1 : recipe.Layout == "stream" ? 2 : 0;
             logoPosDd.SelectedItem = recipe.LogoPos ?? "Праворуч угорі";
             ShowLogo();
             autoPublishCheck.Checked = !settings.RequirePreview;
@@ -407,6 +437,8 @@ namespace AutoShorts
                     if (token != createToken) return;
                     createInfo = info;
                     srcTitle.Text = info.Title;
+                    liveRow.Visible = info.IsLive;
+                    if (info.IsLive) rangeBlock.Visible = false;
                     srcMeta.Text = (string.IsNullOrEmpty(info.Channel) ? "" : info.Channel + " · ") + Dur(info.Duration) +
                                    (info.Heatmap.Count > 0 ? " · є графік переглядів" : "") + (info.CaptionUrl != null ? " · є субтитри" : " · без субтитрів");
                     rangeBar.Duration = Math.Max(30, info.Duration);
@@ -467,7 +499,16 @@ namespace AutoShorts
             double len = (rangeBar.End > 0 ? rangeBar.End : dur) - rangeBar.Start;
             add("Відео", single ? (createInfo != null || dur != 600 ? Dur(dur) : "…") : createLinks.Count + " шт.", Theme.Text);
             if (single && (rangeBar.Start > 0 || rangeBar.End > 0)) add("Відрізок", Dur(rangeBar.Start) + " – " + Dur(rangeBar.End > 0 ? rangeBar.End : dur) + " (" + Dur(len) + ")", Theme.Text);
-            add("Кліпів", clipsDd.SelectedItem + " × " + (lenDd.SelectedIndex <= 0 ? settings.MinSeconds + "–" + settings.MaxSeconds + " с" : lenDd.SelectedItem), Theme.Text);
+            bool live = createInfo != null && createInfo.IsLive && single;
+            add("Кліпів", clipsDd.SelectedItem + (live ? " на годину" : "") + " × " + (lenDd.SelectedIndex <= 0 ? settings.MinSeconds + "–" + settings.MaxSeconds + " с" : lenDd.SelectedItem), Theme.Text);
+            if (live) add("Ефір", "запис: " + (liveDd.SelectedItem ?? "").ToString().ToLowerInvariant(), Theme.Text);
+            add("Формат", recipe.Aspect ?? "9:16", Theme.Text);
+            int cnt = clipsDd.SelectedItem is int ? (int)clipsDd.SelectedItem : 0;
+            if (single && !live && cnt > 1 && dur > 0 && dur != 600)
+            {
+                int fits = (int)(len / Math.Max(15, lenDd.SelectedIndex <= 0 ? (settings.MinSeconds + settings.MaxSeconds) / 2.0 : (double.Parse(Lengths[lenDd.SelectedIndex][1]) + double.Parse(Lengths[lenDd.SelectedIndex][2])) / 2));
+                if (cnt > fits) add("Увага", "у відео поміститься ~" + Math.Max(1, fits) + " кліпів без повторів", Theme.Orange);
+            }
             add("Субтитри", !recipe.Captions ? "вимкнено" : (styleGallery.SelectedItem ?? "") + (Fonts.Find(recipe.FontName) != null ? " · " + recipe.FontName : "") + (recipe.TranslateTo != null ? " · " + LangName(recipe.TranslateTo) : ""), Theme.Text);
             add("Гачок", recipe.Hook ? recipe.HookStyle ?? "так" : "ні", Theme.Text);
             var fx = new List<string>();
@@ -479,6 +520,8 @@ namespace AutoShorts
             if (recipe.ColorBoost) fx.Add("кольори");
             if (recipe.Fades) fx.Add("переходи");
             if (recipe.Layout == "fit") fx.Add("розмитий фон");
+            if (recipe.Layout == "stream") fx.Add("камера стримера зверху");
+            if (recipe.SubPosition != null && recipe.SubPosition != "Низ") fx.Add("субтитри: " + recipe.SubPosition.ToLowerInvariant());
             if (!string.IsNullOrEmpty(recipe.LogoPath)) fx.Add("логотип");
             add("Обробка", fx.Count == 0 ? "—" : string.Join(", ", fx), Theme.Text);
             var ch = SelectedId(channelCombo);
@@ -522,6 +565,7 @@ namespace AutoShorts
                     Recipe = recipe.Clone(),
                     MinLen = int.Parse(len[1]),
                     MaxLen = int.Parse(len[2]),
+                    LiveMaxMinutes = int.Parse(LiveLimits[Math.Max(0, liveDd.SelectedIndex)][1]),
                     AddedUtc = DateTime.UtcNow,
                     RangeStart = single ? rangeBar.Start : 0,
                     RangeEnd = single ? rangeBar.End : 0,
