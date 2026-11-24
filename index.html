@@ -353,7 +353,7 @@
       <div class="card s3 reveal">
         <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg></div>
         <h3>Субтитри як у топових шортсах</h3>
-        <p>По 2–4 слова, слово, що звучить, і ключові слова підсвічуються. 5 стилів, автопереклад субтитрів YouTube і свій SRT.</p>
+        <p>По 2–4 слова, слово, що звучить, і ключові слова підсвічуються. 6 стилів з караоке-заливкою, 29 шрифтів з кирилицею, положення внизу, по центру чи вгорі, свій розмір. Автопереклад субтитрів YouTube і свій SRT.</p>
         <div class="viz styles">
           <div class="sty on">ЦЕ <span class="g">ПРОСТО</span> <span class="y">ВОГОНЬ</span></div>
           <div class="sty" style="font-family:Impact,sans-serif">ЦЕ <span class="y">ПРОСТО</span> <span class="g">ВОГОНЬ</span></div>
@@ -368,6 +368,8 @@
         <h3>Рецепт обробки</h3>
         <p>Увімкніть, що потрібно, — FFmpeg зробить решту. Налаштування запам’ятовуються для наступних відео.</p>
         <div class="viz toggles">
+          <div class="tg">Вирізати паузи<span class="sw on"></span></div>
+          <div class="tg">Пропускати рекламу й «промокоди»<span class="sw on"></span></div>
           <div class="tg">Чистий звук · −14 LUFS<span class="sw on"></span></div>
           <div class="tg">Автонаближення на кожному другому реченні<span class="sw on"></span></div>
           <div class="tg">Ціле відео на розмитому фоні<span class="sw"></span></div>
@@ -377,8 +379,8 @@
 
       <div class="card s2 reveal">
         <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/><path d="M3 3h4M3 3v4M21 3h-4M21 3v4"/></svg></div>
-        <h3>Кадр за обличчям</h3>
-        <p>Вбудований детектор облич Windows тримає людину в центрі вертикального кадру 9:16.</p>
+        <h3>Кадр за мовцем</h3>
+        <p>Вбудований детектор облич Windows — рамка плавно їде за людиною. Формати 9:16, 4:5, 1:1 і 16:9.</p>
       </div>
       <div class="card s2 reveal">
         <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
@@ -389,7 +391,7 @@
       <div class="card s2 reveal">
         <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></div>
         <h3>Календар публікацій</h3>
-        <p>Усі заплановані шортси на місяць, кожен канал — своїм кольором.</p>
+        <p>Усі відео ваших каналів — уже опубліковані й заплановані, кожен канал своїм кольором.</p>
         <div class="viz cal">
           <div>17<i></i></div><div>18</div><div>19<i class="b"></i></div><div>20</div><div class="t">21<i></i></div><div>22<i class="b"></i></div><div>23<i></i></div>
         </div>
@@ -398,12 +400,41 @@
       <div class="card s3 reveal">
         <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12a10 10 0 11-4-8"/><path d="M22 4L12 14l-3-3"/></svg></div>
         <h3>Кілька каналів і автопублікація</h3>
-        <p>Кожен канал входить через свій Google-акаунт. Позначте кліпи — вони вийдуть у найкращі вільні слоти, а звіт покаже перегляди, лайки й коментарі.</p>
+        <p>Кожен канал входить через «Увійти через Google». Позначте кліпи — вони вийдуть у найкращі вільні слоти. Закінчився денний ліміт YouTube — решта завантажиться сама наступного дня.</p>
       </div>
       <div class="card s3 reveal">
         <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6"/></svg></div>
         <h3>Посилання або свій файл</h3>
         <p>YouTube і все, що читає yt-dlp, або MP4/MOV/MKV з комп’ютера — просто перетягніть у вікно. Субтитри <code>.srt</code> з такою ж назвою підхопляться самі.</p>
+      </div>
+
+      <div class="card s2 reveal">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+        <h3>До 200 кліпів</h3>
+        <p>З одного довгого відео чи стріму — без повторів. Програма підкаже, скільки кліпів реально поміститься.</p>
+        <div class="viz" style="display:flex;align-items:baseline;gap:6px"><span class="big">200</span><span style="color:var(--muted);font-weight:600">кліпів</span></div>
+      </div>
+      <div class="card s2 reveal">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4"/></svg></div>
+        <h3>Прямі ефіри й стріми</h3>
+        <p>Вставте посилання на трансляцію — AutoShorts записує її і нарізає кліпи по ходу. Макет «Стрім»: камера стримера зверху, гра знизу.</p>
+      </div>
+      <div class="card s2 reveal">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg></div>
+        <h3>Відеокарта й потужність</h3>
+        <p>Кодування на NVIDIA, AMD чи Intel — у рази швидше. А повзунок потужності не дасть ноутбуку перегрітися.</p>
+      </div>
+
+      <div class="card s3 reveal">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg></div>
+        <h3>Розумна нарізка</h3>
+        <p>Кліп починається й закінчується на межі речення — без «ну, так от» на початку й обірваної фрази в кінці. Гачок — найсильніше речення фрагмента.</p>
+      </div>
+      <div class="card s3 reveal">
+        <div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></div>
+        <h3>Статистика й поради</h3>
+        <p>Підписники, перегляди, теплова карта «день × година» і поради: коли публікувати, що заходить краще — шортси чи довгі відео.</p>
+        <div class="viz"><div class="hours"><i style="height:18%"></i><i style="height:26%"></i><i style="height:30%"></i><i style="height:44%"></i><i class="hot" style="height:90%"></i><i style="height:50%"></i><i class="hot" style="height:100%"></i><i style="height:36%"></i><i style="height:22%"></i></div><div class="hours-l"><span>Пн</span><span>Пт</span><span>Нд</span></div></div>
       </div>
     </div>
   </section>
@@ -429,6 +460,8 @@
         <tr><td>Де обробляється відео</td><td>На вашому комп’ютері</td><td>На чужих серверах</td></tr>
         <tr><td>Ключі ШІ, акаунти</td><td>Не потрібні</td><td>Потрібен акаунт</td></tr>
         <tr><td>Довжина відео</td><td>Будь-яка</td><td>Обмежена тарифом</td></tr>
+        <tr><td>Кліпів з одного відео</td><td>До 200</td><td>Залежить від кредитів</td></tr>
+        <tr><td>Прямі ефіри</td><td>Нарізка під час трансляції</td><td>Лише після завершення</td></tr>
         <tr><td>Публікація в найкращий час</td><td>За статистикою вашого каналу</td><td>Ручний розклад</td></tr>
       </table>
     </div>
@@ -438,11 +471,13 @@
     <div class="eyebrow">Питання</div>
     <h2 class="display">Часті запитання</h2>
     <div class="faq" style="text-align:left">
-      <details><summary>Це справді безкоштовно?</summary><p>Так. Програма працює на вашому комп’ютері: FFmpeg і yt-dlp вона докачає сама, а моменти шукає без хмарних моделей. Для публікації на YouTube потрібен лише безкоштовний Google Client ID — інструкція є в програмі.</p></details>
+      <details><summary>Це справді безкоштовно?</summary><p>Так. Програма працює на вашому комп’ютері: FFmpeg і yt-dlp вона докачає сама, а моменти шукає без хмарних моделей. Для публікації достатньо натиснути «Увійти через Google».</p></details>
       <details><summary>Як AutoShorts знаходить цікаві моменти без ШІ?</summary><p>Поєднує три сигнали: графік «найчастіше переглядають» з YouTube, сплески гучності (сміх, емоції, акценти) і щільність мови. Межі кліпів ставляться на паузах між реченнями, щоб не різати посеред слова. Можна ще вказати слова-моменти — фрагменти з ними отримають пріоритет.</p></details>
       <details><summary>Що потрібно, щоб запустити?</summary><p>Windows 10 або 11. Завантажте <code>AutoShorts-Setup.exe</code> — інсталятор поставить програму, додасть її в меню «Пуск» і на робочий стіл (права адміністратора не потрібні). Є й портативна версія <code>AutoShorts.exe</code> на сторінці релізу. При першому запуску програма завантажить FFmpeg і yt-dlp.</p></details>
       <details><summary>Чи можна нарізати відео з комп’ютера?</summary><p>Так — кнопка «Файл з комп’ютера» або перетягування у вікно. Субтитри з <code>.srt</code> з такою ж назвою підхопляться автоматично, або завантажте SRT вручну на сторінці проєкту.</p></details>
-      <details><summary>Скільки каналів можна підключити?</summary><p>Скільки завгодно. Кожен канал входить через свій Google-акаунт, має свій розклад, найкращий час і звіт переглядів.</p></details>
+      <details><summary>Чому кліпи викладаються не всі одразу?</summary><p>YouTube дає безкоштовний денний ліміт — приблизно 6 завантажень на день. Коли він закінчується, AutoShorts ставить решту кліпів у чергу і сам продовжить завантаження після оновлення ліміту (близько 10:00 за Києвом), якщо програма відкрита.</p></details>
+      <details><summary>Як нарізати прямий ефір?</summary><p>Вставте посилання на трансляцію, що йде зараз. Програма покаже пункт «Прямий ефір»: виберіть, скільки записувати (до кінця або 30 хв – 4 год) і скільки кліпів на годину. Кліпи з’являтимуться по ходу ефіру; моменти шукаються за звуком, бо субтитрів під час трансляції YouTube не дає.</p></details>
+      <details><summary>Скільки каналів можна підключити?</summary><p>Скільки завгодно. Кожен канал входить через свій Google-акаунт, має свій розклад, найкращий час, статистику й поради.</p></details>
       <details><summary>Windows попереджає про невідомого видавця</summary><p>Це звичайно для програм без платного сертифіката. Натисніть «Докладніше» → «Усе одно запустити». Код повністю відкритий на GitHub.</p></details>
     </div>
   </section>
