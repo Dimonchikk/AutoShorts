@@ -80,6 +80,9 @@ namespace AutoShorts
                 chips.Controls.Add(b);
             };
             chip("Субтитри", Glyphs.Captions, r => r.Captions, (r, v) => r.Captions = v);
+            chip("Без пауз", Glyphs.Clock, r => r.CutPauses, (r, v) => r.CutPauses = v);
+            chip("Без реклами", Glyphs.Stop, r => r.SkipAds, (r, v) => r.SkipAds = v);
+            chip("Кадр за мовцем", Glyphs.People, r => r.TrackFace, (r, v) => r.TrackFace = v);
             chip("Заголовок-гачок", Glyphs.Sparkle, r => r.Hook, (r, v) => r.Hook = v);
             chip("Чистий звук", Glyphs.Refresh, r => r.EnhanceAudio, (r, v) => r.EnhanceAudio = v);
             chip("Автонаближення", Glyphs.Add, r => r.AutoZoom, (r, v) => r.AutoZoom = v);

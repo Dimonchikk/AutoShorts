@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace AutoShorts
@@ -75,11 +76,21 @@ namespace AutoShorts
             hookCheck = new Toggle("Показувати заголовок-гачок перші 3 секунди") { Checked = settings.HookTitle };
             coverCheck = new Toggle("Ставити обкладинку (найяскравіший кадр + назва)") { Checked = settings.UploadCover };
 
-            var yt = group("YouTube", "Client ID потрібен один раз — він дозволяє програмі входити у ваші канали. Ключі ШІ не потрібні.");
-            add(yt, "Client ID", new Field(clientIdBox, 0, "xxxxxxxx.apps.googleusercontent.com"));
-            add(yt, "Client secret", new Field(clientSecretBox, 0, null));
-            add(yt, "", Row(Btn("Майстер підключення", (s, e) => ShowConnectWizard(), ButtonKind.Primary, Glyphs.Help), Btn("Інструкція", (s, e) => ShowGuide(), ButtonKind.Secondary),
-                            Btn("Відкрити Google Cloud Console", (s, e) => OpenUrl(Guide.ConsoleUrl), ButtonKind.Plain, Glyphs.Link)));
+            var yt = group("YouTube", "Кожен канал входить через свій Google-акаунт. Щоб додати ще один — натисніть кнопку ще раз і виберіть інший акаунт або канал.");
+            var google = new GoogleButton("Увійти через Google");
+            google.Click += (s, e) => AddChannel();
+            var ytHead = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, 6) };
+            ytHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            ytHead.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            accountsTitle = new Label { AutoSize = true, Font = Theme.Semi(10.5F), ForeColor = Theme.Text, Anchor = AnchorStyles.Left, Margin = new Padding(3) };
+            ytHead.Controls.Add(accountsTitle, 0, 0);
+            google.Anchor = AnchorStyles.Right;
+            ytHead.Controls.Add(google, 1, 0);
+            accountsList = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Margin = new Padding(0) };
+            accountsList.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            addWide(yt, ytHead);
+            addWide(yt, accountsList);
+            RefreshAccounts();
 
             var files = group("Файли", null);
             var browse = Btn("Огляд…", (s, e) =>
@@ -122,6 +133,53 @@ namespace AutoShorts
 
             var scroll = new ScrollHost(outer);
             return new Page("Налаштування", "Вхід Google, шаблони текстів і параметри нарізки", scroll);
+        }
+
+        TableLayoutPanel accountsList;
+        Label accountsTitle;
+
+        // Список підключених акаунтів: аватарка, назва, @нікнейм, кнопка «Відключити»
+        void RefreshAccounts()
+        {
+            if (accountsList == null) return;
+            accountsList.SuspendLayout();
+            foreach (Control c in accountsList.Controls.Cast<Control>().ToList()) c.Dispose();
+            accountsList.Controls.Clear();
+            accountsList.RowStyles.Clear();
+            accountsTitle.Text = settings.Channels.Count == 0 ? "Жодного каналу ще не підключено" : "Підключені канали · " + settings.Channels.Count;
+            int i = 0;
+            foreach (var ch in settings.Channels)
+            {
+                var c0 = ch;
+                var row = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 4) };
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                var av = new Avatar { ImagePath = ch.AvatarPath, Letter = string.IsNullOrEmpty(ch.Title) ? "?" : ch.Title.Substring(0, 1).ToUpperInvariant(), Tint = ChannelColor(ch.Id), Anchor = AnchorStyles.Left };
+                row.Controls.Add(av, 0, 0);
+                var txt = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, Margin = new Padding(0) };
+                txt.Controls.Add(new Label { Text = ch.Title, AutoSize = true, Font = Theme.Semi(10.5F), ForeColor = Theme.Text, Margin = new Padding(0) });
+                txt.Controls.Add(new Label
+                {
+                    Text = "● Підключено" + (string.IsNullOrEmpty(ch.Handle) ? "" : " · " + ch.Handle) + " · найкращий час: " + BestTime.Describe(ch),
+                    AutoSize = true, ForeColor = Theme.Secondary, Font = Theme.F(9F), Margin = new Padding(0, 2, 0, 0)
+                });
+                row.Controls.Add(txt, 1, 0);
+                var off = Btn("Відключити", (s, e) =>
+                {
+                    if (MessageBox.Show("Відключити канал «" + c0.Title + "» від AutoShorts?", "AutoShorts", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                    settings.Channels.Remove(c0);
+                    if (settings.DefaultChannelId == c0.Id) settings.DefaultChannelId = null;
+                    settings.Save();
+                    RefreshChannels();
+                }, ButtonKind.Danger);
+                off.Anchor = AnchorStyles.Right;
+                row.Controls.Add(off, 2, 0);
+                accountsList.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                accountsList.Controls.Add(row, 0, i++);
+            }
+            accountsList.RowCount = Math.Max(1, i);
+            accountsList.ResumeLayout(true);
         }
 
         void SaveSettings()

@@ -23,6 +23,16 @@ namespace AutoShorts
         public bool Upper = true;
         public int MaxWords = 3;
         public int MarginV = 560;             // відступ знизу (з 1920)
+        public bool Bold = true;
+
+        /// <summary>Копія стилю з іншим шрифтом.</summary>
+        public SubStyle With(string font, bool bold)
+        {
+            var c = (SubStyle)MemberwiseClone();
+            c.Font = font;
+            c.Bold = bold;
+            return c;
+        }
     }
 
     static class SubtitleStyles
@@ -125,10 +135,10 @@ namespace AutoShorts
             sb.AppendLine("[V4+ Styles]");
             sb.AppendLine("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding");
             sb.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                "Style: Main,{0},{1},{2},{2},{3},{4},-1,0,0,0,100,100,1,0,{5},{6},{7},2,70,70,{8},1",
+                "Style: Main,{0},{1},{2},{2},{3},{4},{9},0,0,0,100,100,1,0,{5},{6},{7},2,70,70,{8},1",
                 st.Font, st.Size, Color(st.Primary, "00"),
                 st.Box ? Color("000000", "40") : Color(st.Outline, "00"),
-                Color("000000", "80"), st.Box ? 3 : 1, st.OutlineWidth, st.Shadow, st.MarginV));
+                Color("000000", "80"), st.Box ? 3 : 1, st.OutlineWidth, st.Shadow, st.MarginV, st.Bold ? -1 : 0));
             sb.AppendLine(HookStyleLine(hookStyle));
             sb.AppendLine();
             sb.AppendLine("[Events]");

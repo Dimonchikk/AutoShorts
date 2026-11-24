@@ -69,6 +69,94 @@ namespace AutoShorts
                 Json.Str(Json.Path(it, "contentDetails", "relatedPlaylists"), "uploads"));
         }
 
+        /// <summary>Підписники, перегляди, кількість відео каналу.</summary>
+        public async Task<long[]> ChannelStatsAsync(string channelId)
+        {
+            var o = await GetAsync("https://www.googleapis.com/youtube/v3/channels?part=statistics&id=" + Uri.EscapeDataString(channelId));
+            var items = Json.Arr(o, "items");
+            if (items.Length == 0) return new long[] { 0, 0, 0, 0 };
+            var st = Json.Get(items[0], "statistics");
+            bool hidden = Json.Get(st, "hiddenSubscriberCount") is bool && (bool)Json.Get(st, "hiddenSubscriberCount");
+            return new[] { hidden ? -1 : (long)Json.Num(st, "subscriberCount", 0), (long)Json.Num(st, "viewCount", 0), (long)Json.Num(st, "videoCount", 0) };
+        }
+
+        /// <summary>Аватарка й @нікнейм каналу.</summary>
+        public async Task<Tuple<string, string>> ChannelLookAsync(string channelId)
+        {
+            var o = await GetAsync("https://www.googleapis.com/youtube/v3/channels?part=snippet&id=" + Uri.EscapeDataString(channelId));
+            var items = Json.Arr(o, "items");
+            if (items.Length == 0) return Tuple.Create<string, string>(null, null);
+            var sn = Json.Get(items[0], "snippet");
+            var thumbs = Json.Get(sn, "thumbnails");
+            string url = null;
+            foreach (var k in new[] { "medium", "default", "high" }) { url = Json.Str(Json.Get(thumbs, k), "url"); if (url != null) break; }
+            return Tuple.Create(url, Json.Str(sn, "customUrl"));
+        }
+
+        static DateTime? Date(string s)
+        {
+            DateTime dt;
+            if (!string.IsNullOrEmpty(s) && DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out dt)) return dt;
+            return null;
+        }
+
+        static int Seconds(string iso)
+        {
+            // PT1H2M3S
+            if (string.IsNullOrEmpty(iso)) return 0;
+            var m = System.Text.RegularExpressions.Regex.Match(iso, @"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?");
+            Func<int, int> g = i => m.Groups[i].Success ? int.Parse(m.Groups[i].Value) : 0;
+            return g(1) * 86400 + g(2) * 3600 + g(3) * 60 + g(4);
+        }
+
+        /// <summary>Усі відео каналу (опубліковані, заплановані, приватні) — для календаря.</summary>
+        public async Task<List<ChannelVideo>> ChannelVideosAsync(string channelId, string uploadsPlaylist, int max)
+        {
+            var list = new List<ChannelVideo>();
+            string page = null;
+            do
+            {
+                var url = "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=" +
+                          Uri.EscapeDataString(uploadsPlaylist) + (page != null ? "&pageToken=" + page : "");
+                var o = await GetAsync(url);
+                foreach (var it in Json.Arr(o, "items"))
+                {
+                    var cd = Json.Get(it, "contentDetails");
+                    var sn = Json.Get(it, "snippet");
+                    var id = Json.Str(cd, "videoId");
+                    if (id == null) continue;
+                    var when = Date(Json.Str(cd, "videoPublishedAt")) ?? Date(Json.Str(sn, "publishedAt")) ?? DateTime.UtcNow;
+                    list.Add(new ChannelVideo { Id = id, ChannelId = channelId, Title = Json.Str(sn, "title") ?? id, WhenUtc = when });
+                }
+                page = Json.Str(o, "nextPageToken");
+            } while (page != null && list.Count < max);
+            if (list.Count > max) list = list.Take(max).ToList();
+
+            // статус, запланований час і тривалість — пачками по 50
+            for (int i = 0; i < list.Count; i += 50)
+            {
+                var batch = list.Skip(i).Take(50).ToList();
+                var o = await GetAsync("https://www.googleapis.com/youtube/v3/videos?part=status,contentDetails,liveStreamingDetails&id=" + string.Join(",", batch.Select(v => v.Id)));
+                var byId = batch.ToDictionary(v => v.Id);
+                foreach (var it in Json.Arr(o, "items"))
+                {
+                    ChannelVideo v;
+                    if (!byId.TryGetValue(Json.Str(it, "id") ?? "", out v)) continue;
+                    var st = Json.Get(it, "status");
+                    var privacy = Json.Str(st, "privacyStatus") ?? "public";
+                    var publishAt = Date(Json.Str(st, "publishAt"));
+                    v.Privacy = privacy;
+                    if (publishAt.HasValue && privacy != "public") { v.Scheduled = true; v.WhenUtc = publishAt.Value; }
+                    var secs = Seconds(Json.Str(Json.Get(it, "contentDetails"), "duration"));
+                    v.Seconds = secs;
+                    v.IsShort = secs > 0 && secs <= 180;
+                    var live = Json.Get(it, "liveStreamingDetails");
+                    if (live != null) { v.IsLive = true; v.WhenUtc = Date(Json.Str(live, "actualStartTime")) ?? Date(Json.Str(live, "scheduledStartTime")) ?? v.WhenUtc; }
+                }
+            }
+            return list;
+        }
+
         public async Task<List<Tuple<string, DateTime>>> RecentUploadsAsync(string playlistId, int max)
         {
             var res = new List<Tuple<string, DateTime>>();

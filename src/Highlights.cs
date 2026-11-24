@@ -9,6 +9,8 @@ namespace AutoShorts
 {
     static class Highlights
     {
+        public static int AdBlocksFound;
+
         /// <summary>Гучність (RMS) кожної секунди аудіо через FFmpeg, без жодних моделей.</summary>
         public static async Task<double[]> LoudnessAsync(string video, string workDir, CancellationToken ct)
         {
@@ -78,7 +80,7 @@ namespace AutoShorts
         /// Шукає найцікавіші фрагменти: графік «найчастіше переглядають», сплески гучності і щільність мови.
         /// </summary>
         public static List<ClipItem> Find(double duration, List<HeatPoint> heat, double[] loud, List<Word> words,
-                                          int count, int minLen, int maxLen, double rangeStart = 0, double rangeEnd = 0, string include = null)
+                                          int count, int minLen, int maxLen, double rangeStart = 0, double rangeEnd = 0, string include = null, bool skipAds = true)
         {
             int n = (int)Math.Ceiling(Math.Max(duration, loud.Length));
             if (n < minLen) { minLen = Math.Max(5, n - 1); maxLen = Math.Max(minLen, n); }
@@ -162,6 +164,11 @@ namespace AutoShorts
                 if (ends.Count == 0) for (double t = r0 + minLen; t <= r1; t += 2) ends.Add(t);
             }
 
+            // з ViralCut: речення, рекламні вставки, гачки й незавершені думки
+            var sents = hasWords ? Smart.Sentences(words) : new List<Smart.Sentence>();
+            var ads = hasWords && skipAds ? Smart.AdBlocks(sents) : new List<Smart.Span>();
+            AdBlocksFound = ads.Count;
+
             var cands = new List<ClipItem>();
             foreach (var s in starts)
             {
@@ -178,11 +185,13 @@ namespace AutoShorts
                     double hook = (prefix[hb] - prefix[a]) / Math.Max(1, hb - a);
                     double lenBonus = 1 + 0.08 * (e - s - minLen) / Math.Max(1, maxLen - minLen);
                     double sc = (mean * 0.85 + hook * 0.15) * lenBonus;
+                    if (ads.Count > 0 && Smart.Overlap(s, e, ads) > 1.5) continue; // реклама в кліп не йде
+                    if (sents.Count > 0) sc *= Smart.BoundaryFactor(sents, s, e);
                     var ci = new ClipItem { Start = s, End = e, Score = sc };
                     cands.Add(ci);
                     if (best == null || sc > best.Score) best = ci;
                 }
-                if (best == null && s + minLen <= r1)
+                if (best == null && s + minLen <= r1 && (ads.Count == 0 || Smart.Overlap(s, s + minLen, ads) <= 1.5))
                 {
                     double e = Math.Min(r1, s + (minLen + maxLen) / 2.0);
                     int a = (int)s, b = Math.Min(n, (int)Math.Ceiling(e));

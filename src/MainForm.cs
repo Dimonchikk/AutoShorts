@@ -58,7 +58,7 @@ namespace AutoShorts
             nav.Items.Add(new SideNav.Item(Glyphs.Home, "Головна"));
             nav.Items.Add(new SideNav.Item(Glyphs.Clips, "Кліпи"));
             nav.Items.Add(new SideNav.Item(Glyphs.Calendar, "Календар"));
-            nav.Items.Add(new SideNav.Item(Glyphs.Chart, "Звіт"));
+            nav.Items.Add(new SideNav.Item(Glyphs.Chart, "Статистика"));
             nav.Items.Add(new SideNav.Item(Glyphs.People, "Канали"));
             nav.Items.Add(new SideNav.Item(Glyphs.Log, "Журнал") { Bottom = true });
             nav.Items.Add(new SideNav.Item(Glyphs.Settings, "Налаштування") { Bottom = true });
@@ -114,6 +114,7 @@ namespace AutoShorts
                 if (!settings.HasGoogleClient())
                     Log("Щоб публікувати на YouTube, відкрийте «Канали» → «Увійти через Google».");
                 LoadThumbsAsync();
+                LoadAvatarsAsync();
                 if (jobs.Any(j => !j.Done && j.Error == null)) StartStop();
                 await CheckUpdatesAsync();
             };
@@ -135,8 +136,9 @@ namespace AutoShorts
             navSync = true;
             nav.SelectedIndex = index < nav.Items.Count ? index : PHome;
             navSync = false;
-            if (index == PCalendar) RefreshCalendar();
+            if (index == PCalendar) { RefreshCalendar(); LoadChannelVideosAsync(false); }
             if (index == PClips) RefreshClips();
+            if (index == PReport && heatMap != null && heatMap.Scores == null) LoadReport();
         }
 
         void UpdateNav()

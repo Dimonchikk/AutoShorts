@@ -27,6 +27,9 @@ namespace AutoShorts
         public string RefreshTokenProtected { get; set; }
         public string ClientId { get; set; }               // клієнт Google, через який увійшли (токен прив’язаний до нього)
         public string ClientSecretProtected { get; set; }
+        public string AvatarPath { get; set; }             // аватарка каналу (локальний файл)
+        public string Handle { get; set; }                 // @нікнейм
+        public DateTime VideosUpdatedUtc { get; set; }     // коли календар востаннє оновлювався з YouTube
         public int ShortsPerDay { get; set; }
         /// <summary>168 значень: (день тижня за Києвом) * 24 + година.</summary>
         public List<double> HourScores { get; set; }
@@ -35,6 +38,20 @@ namespace AutoShorts
         public DateTime BestTimeUpdatedUtc { get; set; }
 
         public ChannelInfo() { ShortsPerDay = 2; UsingFallback = true; }
+    }
+
+    /// <summary>Відео каналу для календаря (кеш із YouTube).</summary>
+    public class ChannelVideo
+    {
+        public string Id { get; set; }
+        public string ChannelId { get; set; }
+        public string Title { get; set; }
+        public DateTime WhenUtc { get; set; }
+        public string Privacy { get; set; }
+        public bool Scheduled { get; set; }
+        public bool IsShort { get; set; }
+        public bool IsLive { get; set; }
+        public int Seconds { get; set; }
     }
 
     public class PublishedItem
@@ -74,6 +91,8 @@ namespace AutoShorts
         public int ScoreTempo { get; set; }
 
         public double Duration { get { return End - Start; } }
+        public double OutDuration { get; set; }
+        public string FacePath { get; set; }             // траєкторія кадру за обличчям "t:x;…" (null — статичний)          // тривалість готового кліпу (після вирізання пауз)
     }
 
     /// <summary>Набір обробки для проєкту (як «Recipe» в OpusClip). Усе працює без ШІ — FFmpeg і субтитри YouTube.</summary>
@@ -93,11 +112,16 @@ namespace AutoShorts
         public bool Fades { get; set; }
         public string LogoPath { get; set; }
         public string LogoPos { get; set; }
+        public bool CutPauses { get; set; }          // вирізати паузи всередині кліпу (з ViralCut)
+        public bool SkipAds { get; set; }            // не брати рекламні вставки (з ViralCut)
+        public bool TrackFace { get; set; }          // кадр рухається за обличчям (з ViralCut)
+        public string FontName { get; set; }         // шрифт субтитрів (null — зі стилю)
 
         public Recipe()
         {
             Captions = true; Hook = true; HookStyle = "Класичний"; Layout = "crop";
             EnhanceAudio = true; ColorBoost = false; AutoZoom = false; Fades = true; LogoPos = "Праворуч угорі";
+            CutPauses = true; SkipAds = true; TrackFace = true;
         }
 
         public Recipe Clone() { return (Recipe)MemberwiseClone(); }

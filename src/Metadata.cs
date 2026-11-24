@@ -34,6 +34,17 @@ namespace AutoShorts
         {
             var text = (clipText ?? "").Trim();
             if (text.Length == 0) return Trim(sourceTitle, 60);
+            // з ViralCut: найчіпкіше з перших речень (питання, цифри, «чому/як/секрет»), а не просто перше
+            var sentences = Regex.Split(text, @"(?<=[\.\!\?…])\s+").Where(x => x.Trim().Length > 0).ToList();
+            if (sentences.Count > 1)
+            {
+                var best = Smart.BestTitle(sentences);
+                if (best != null && best.Length >= 12)
+                {
+                    best = char.ToUpper(best[0], CultureInfo.CurrentCulture) + best.Substring(1);
+                    return Trim(best, 55);
+                }
+            }
             var m = Regex.Match(text, @"^(.{12,55}?[\.\!\?…])(\s|$)");
             string s;
             if (m.Success) s = m.Groups[1].Value;

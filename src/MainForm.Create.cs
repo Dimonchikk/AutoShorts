@@ -22,7 +22,8 @@ namespace AutoShorts
         Dropdown langDd, layoutDd, clipsDd, lenDd, translateDd, logoPosDd, channelCombo;
         RangeBar rangeBar;
         TextBox rangeFromBox, rangeToBox, keywordsBox;
-        Toggle captionsToggle, hookToggle, audioToggle, zoomToggle, colorToggle, fadeToggle, autoPublishCheck;
+        Toggle captionsToggle, hookToggle, audioToggle, zoomToggle, colorToggle, fadeToggle, autoPublishCheck, pausesToggle, adsToggle, trackToggle;
+        Dropdown fontDd;
         ChoiceGallery styleGallery, hookGallery;
         TableLayoutPanel summary;
         AButton createBtn;
@@ -145,8 +146,12 @@ namespace AutoShorts
             lenDd.SelectedIndexChanged += (s, e) => UpdateSummary();
             keywordsBox = new TextBox();
             keywordsBox.TextChanged += (s, e) => { recipe.Keywords = keywordsBox.Text; UpdateSummary(); };
+            pausesToggle = T(null); pausesToggle.CheckedChanged += (s, e) => { recipe.CutPauses = pausesToggle.Checked; UpdateSummary(); };
+            adsToggle = T(null); adsToggle.CheckedChanged += (s, e) => { recipe.SkipAds = adsToggle.Checked; UpdateSummary(); };
             var cutCard = CardOf(Stack(
                 SettingRow(Glyphs.Cut, "Нарізка", "Скільки кліпів і якої довжини зробити з кожного відео", clipsDd, lenDd), 0,
+                SettingRow(Glyphs.Clock, "Вирізати паузи", "Прибирає мовчання всередині кліпу — темп як у топових шортсах", pausesToggle), 0,
+                SettingRow(Glyphs.Stop, "Пропускати рекламу", "Вставки з «промокод», «посилання в описі», «спонсор» не потрапляють у кліпи", adsToggle), 0,
                 Caption("Моменти, які обов’язково включити (необов’язково)"), 0,
                 new Field(keywordsBox, 0, "Наприклад: гроші, бізнес, порада — фрагменти з цими словами отримають пріоритет"), 0));
 
@@ -166,6 +171,17 @@ namespace AutoShorts
             hookGallery.ImageFor = (name, sz) => HookPreview.Get(name, sz.Width, sz.Height);
             hookGallery.SelectedIndexChanged += (s, e) => { recipe.HookStyle = hookGallery.SelectedItem; UpdateSummary(); };
 
+            fontDd = Dd(null, new object[] { Fonts.FromStyle }.Concat(Fonts.All.Select(f => (object)f.Label)).ToArray());
+            fontDd.ItemImage = o => FontPreview(o as string);
+            fontDd.SelectedIndexChanged += async (s, e) =>
+            {
+                if (loadingCreate) return;
+                recipe.FontName = fontDd.SelectedIndex <= 0 ? null : fontDd.SelectedItem as string;
+                UpdateSummary();
+                var f = Fonts.Find(recipe.FontName);
+                if (f != null) { try { await Fonts.EnsureAsync(f, CancellationToken.None); } catch (Exception ex) { Log("Шрифт: " + ex.Message); } }
+            };
+            trackToggle = T(null); trackToggle.CheckedChanged += (s, e) => { recipe.TrackFace = trackToggle.Checked; UpdateSummary(); };
             audioToggle = T(null); audioToggle.CheckedChanged += (s, e) => { recipe.EnhanceAudio = audioToggle.Checked; UpdateSummary(); };
             zoomToggle = T(null); zoomToggle.CheckedChanged += (s, e) => { recipe.AutoZoom = zoomToggle.Checked; UpdateSummary(); };
             colorToggle = T(null); colorToggle.CheckedChanged += (s, e) => { recipe.ColorBoost = colorToggle.Checked; UpdateSummary(); };
@@ -184,12 +200,14 @@ namespace AutoShorts
                 Group("ГОЛОВНЕ"), 0,
                 SettingRow(Glyphs.Captions, "Субтитри", "Великі слова по 2–4 з підсвіткою того, що звучить, і ключових слів", captionsToggle), 0,
                 styleGallery, 0,
+                SettingRow(Glyphs.Captions, "Шрифт субтитрів", "29 шрифтів з кирилицею — завантажується лише вибраний", fontDd), 0,
                 SettingRow(Glyphs.Link, "Переклад субтитрів", "Автопереклад YouTube — без ключів і без моделей", translateDd), 0,
                 SettingRow(Glyphs.Sparkle, "Заголовок-гачок", "Перше речення фрагмента великим текстом у перші 3 секунди", hookToggle), 0,
                 hookGallery, 0,
                 Group("ЗВУК"), 0,
                 SettingRow(Glyphs.Refresh, "Чистий звук", "Прибирає гул і шум, вирівнює гучність до стандарту шортсів (−14 LUFS)", audioToggle), 0,
                 Group("КАРТИНКА"), 0,
+                SettingRow(Glyphs.People, "Кадр за мовцем", "Камера плавно їде за обличчям, а не стоїть на місці (детектор облич Windows)", trackToggle), 0,
                 SettingRow(Glyphs.Add, "Автонаближення", "Кожне друге речення трохи ближче — динаміка, як при ручному монтажі", zoomToggle), 0,
                 SettingRow(Glyphs.Sparkle, "Яскраві кольори", "Трохи більше контрасту, насиченості й різкості", colorToggle), 0,
                 SettingRow(Glyphs.Play, "Плавний початок і кінець", "Коротке з’явлення й згасання картинки та звуку", fadeToggle), 0,
@@ -233,6 +251,38 @@ namespace AutoShorts
             rightCol.Dock = DockStyle.Top;
             grid.Controls.Add(rightCol, 1, 0);
             return new Page("Новий проєкт", "Налаштуйте, що й як нарізати — потім натисніть «Створити»", grid);
+        }
+
+        // превʼю шрифту в списку (якщо файл уже завантажено)
+        readonly Dictionary<string, Image> fontPreviews = new Dictionary<string, Image>();
+        Image FontPreview(string label)
+        {
+            var f = Fonts.Find(label);
+            if (f == null || !File.Exists(Fonts.LocalPath(f))) return null;
+            Image img;
+            if (fontPreviews.TryGetValue(label, out img)) return img;
+            try
+            {
+                using (var pfc = new System.Drawing.Text.PrivateFontCollection())
+                {
+                    pfc.AddFontFile(Fonts.LocalPath(f));
+                    var fam = pfc.Families[0];
+                    var style = fam.IsStyleAvailable(FontStyle.Bold) && f.Bold ? FontStyle.Bold : FontStyle.Regular;
+                    if (!fam.IsStyleAvailable(style)) style = fam.IsStyleAvailable(FontStyle.Regular) ? FontStyle.Regular : FontStyle.Bold;
+                    var bmp = new Bitmap((int)(150 * Theme.Dpi), (int)(30 * Theme.Dpi));
+                    using (var g = Graphics.FromImage(bmp))
+                    using (var font = new Font(fam, 15 * Theme.Dpi, style, GraphicsUnit.Pixel))
+                    using (var b = new SolidBrush(Theme.Text))
+                    {
+                        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                        g.DrawString("ЦЕ ВОГОНЬ", font, b, 2, (bmp.Height - font.GetHeight(g)) / 2);
+                    }
+                    img = bmp;
+                }
+            }
+            catch { img = null; }
+            fontPreviews[label] = img;
+            return img;
         }
 
         void srtBtnLabel()
@@ -305,6 +355,10 @@ namespace AutoShorts
             zoomToggle.Checked = recipe.AutoZoom;
             colorToggle.Checked = recipe.ColorBoost;
             fadeToggle.Checked = recipe.Fades;
+            pausesToggle.Checked = recipe.CutPauses;
+            adsToggle.Checked = recipe.SkipAds;
+            trackToggle.Checked = recipe.TrackFace;
+            fontDd.SelectedItem = Fonts.Find(recipe.FontName) != null ? recipe.FontName : Fonts.FromStyle;
             layoutDd.SelectedIndex = recipe.Layout == "fit" ? 1 : 0;
             logoPosDd.SelectedItem = recipe.LogoPos ?? "Праворуч угорі";
             ShowLogo();
@@ -414,9 +468,12 @@ namespace AutoShorts
             add("Відео", single ? (createInfo != null || dur != 600 ? Dur(dur) : "…") : createLinks.Count + " шт.", Theme.Text);
             if (single && (rangeBar.Start > 0 || rangeBar.End > 0)) add("Відрізок", Dur(rangeBar.Start) + " – " + Dur(rangeBar.End > 0 ? rangeBar.End : dur) + " (" + Dur(len) + ")", Theme.Text);
             add("Кліпів", clipsDd.SelectedItem + " × " + (lenDd.SelectedIndex <= 0 ? settings.MinSeconds + "–" + settings.MaxSeconds + " с" : lenDd.SelectedItem), Theme.Text);
-            add("Субтитри", !recipe.Captions ? "вимкнено" : (styleGallery.SelectedItem ?? "") + (recipe.TranslateTo != null ? " · " + LangName(recipe.TranslateTo) : ""), Theme.Text);
+            add("Субтитри", !recipe.Captions ? "вимкнено" : (styleGallery.SelectedItem ?? "") + (Fonts.Find(recipe.FontName) != null ? " · " + recipe.FontName : "") + (recipe.TranslateTo != null ? " · " + LangName(recipe.TranslateTo) : ""), Theme.Text);
             add("Гачок", recipe.Hook ? recipe.HookStyle ?? "так" : "ні", Theme.Text);
             var fx = new List<string>();
+            if (recipe.CutPauses) fx.Add("без пауз");
+            if (recipe.SkipAds) fx.Add("без реклами");
+            if (recipe.TrackFace && recipe.Layout != "fit") fx.Add("кадр за мовцем");
             if (recipe.EnhanceAudio) fx.Add("чистий звук");
             if (recipe.AutoZoom) fx.Add("наближення");
             if (recipe.ColorBoost) fx.Add("кольори");

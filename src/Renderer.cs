@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -36,20 +37,44 @@ namespace AutoShorts
             return d;
         }
 
-        public static async Task<List<string>> ExtractFramesAsync(string video, double start, double dur, string dir, CancellationToken ct)
+        public static async Task<List<string>> ExtractFramesAsync(string video, double start, double dur, string dir, CancellationToken ct, double step = 0)
         {
             Directory.CreateDirectory(dir);
             foreach (var f in Directory.GetFiles(dir, "f_*.jpg")) { try { File.Delete(f); } catch { } }
-            double step = Math.Max(1, dur / 30);
+            if (step <= 0) step = Math.Max(1, dur / 30);
             var args = "-v error -ss " + F(start) + " -t " + F(dur) + " -i " + Tools.Q(video) +
                        " -vf \"fps=1/" + F(step) + ",scale=480:-2\" -q:v 4 " + Tools.Q(Path.Combine(dir, "f_%03d.jpg"));
             await Tools.RunAsync(Tools.FFmpeg, args, null, null, ct);
             return Directory.GetFiles(dir, "f_*.jpg").OrderBy(x => x).ToList();
         }
 
-        static string CropFilter(Size src, double faceX)
+        static string CropFilter(Size src, double faceX, string facePath = null)
         {
             int cropW = (int)Math.Round(src.Height * 9.0 / 16.0) / 2 * 2;
+            if (cropW <= src.Width && !string.IsNullOrEmpty(facePath))
+            {
+                // кадр рухається за обличчям: кусково-лінійна траєкторія x(t)
+                var pts = new List<double[]>();
+                foreach (var part in facePath.Split(';'))
+                {
+                    var kv = part.Split(':');
+                    double t, x;
+                    if (kv.Length == 2 && double.TryParse(kv[0], NumberStyles.Float, CultureInfo.InvariantCulture, out t) &&
+                        double.TryParse(kv[1], NumberStyles.Float, CultureInfo.InvariantCulture, out x))
+                        pts.Add(new[] { t, Math.Max(0, Math.Min(src.Width - cropW, Math.Round(x * src.Width - cropW / 2.0))) });
+                }
+                if (pts.Count >= 2)
+                {
+                    string expr = Num(pts[pts.Count - 1][1]);
+                    for (int i = pts.Count - 2; i >= 0; i--)
+                    {
+                        double t0 = pts[i][0], x0 = pts[i][1], t1 = pts[i + 1][0], x1 = pts[i + 1][1];
+                        string seg = Math.Abs(x1 - x0) < 0.5 ? Num(x0) : Num(x0) + "+" + Num(x1 - x0) + "*(t-" + Num(t0) + ")/" + Num(Math.Max(0.01, t1 - t0));
+                        expr = "if(lt(t," + Num(t1) + ")," + seg + "," + expr + ")";
+                    }
+                    return "crop=" + cropW + ":" + src.Height + ":x='" + expr + "':y=0,scale=1080:1920,setsar=1";
+                }
+            }
             if (cropW <= src.Width)
             {
                 double cx = faceX >= 0 ? faceX : 0.5;
@@ -66,6 +91,38 @@ namespace AutoShorts
                                  "[b]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1";
 
         static string Num(double v) { return v.ToString("0.###", CultureInfo.InvariantCulture); }
+
+        static readonly Regex MeanVolRx = new Regex(@"mean_volume:\s*(-?[\d\.]+) dB");
+        static readonly Regex SilStartRx = new Regex(@"silence_start:\s*(-?[\d\.]+)");
+        static readonly Regex SilEndRx = new Regex(@"silence_end:\s*(-?[\d\.]+)");
+
+        /// <summary>
+        /// Паузи всередині кліпу (як silence_gaps у ViralCut): тихіше за середню гучність кліпу на 10 дБ довше 0.45 с.
+        /// Повертає план склейки (час відносно початку кліпу) або null, якщо вирізати нічого.
+        /// </summary>
+        public static async Task<List<Smart.Span>> PauseSpansAsync(string video, double start, double dur, CancellationToken ct)
+        {
+            var common = "-hide_banner -nostats -ss " + F(start) + " -t " + F(dur) + " -i " + Tools.Q(video) + " -vn -sn -dn ";
+            var r1 = await Tools.RunAsync(Tools.FFmpeg, common + "-af volumedetect -f null -", null, null, ct);
+            var mv = MeanVolRx.Match((r1.Error ?? "") + (r1.Output ?? ""));
+            double mean;
+            if (!mv.Success || !double.TryParse(mv.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out mean) || mean < -70) return null;
+            double noise = Math.Max(-60, mean - 10);
+            var r2 = await Tools.RunAsync(Tools.FFmpeg, common + "-af silencedetect=noise=" + Num(noise) + "dB:d=0.45 -f null -", null, null, ct);
+            var text = (r2.Error ?? "") + (r2.Output ?? "");
+            var starts = SilStartRx.Matches(text).Cast<Match>().Select(m => double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
+            var ends = SilEndRx.Matches(text).Cast<Match>().Select(m => double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
+            var gaps = new List<Smart.Span>();
+            for (int i = 0; i < starts.Count; i++)
+                gaps.Add(new Smart.Span { Start = Math.Max(0, starts[i]), End = i < ends.Count ? Math.Min(dur, ends[i]) : dur });
+            // паузи на самих краях кліпу не чіпаємо — межі вже стоять на паузах між реченнями
+            gaps = gaps.Where(g => g.End - g.Start >= 0.45 && g.Start > 0.3 && g.End < dur - 0.3).ToList();
+            if (gaps.Count == 0) return null;
+            var plan = Smart.CutPlan(0, dur, gaps);
+            double kept = plan.Sum(x => x.Length);
+            if (plan.Count < 2 || dur - kept < 0.4) return null;
+            return plan;
+        }
 
         // Автонаближення: кожне друге речення трохи ближче — як ручний монтаж «jump zoom»
         static string ZoomFilter(List<Word> words, double duration)
@@ -108,33 +165,98 @@ namespace AutoShorts
             var dir = Path.GetDirectoryName(outPath);
             Directory.CreateDirectory(dir);
             var assName = Path.GetFileNameWithoutExtension(outPath) + ".ass";
+
+            // вирізання пауз (з ViralCut): план склейки й слова під новий час
+            List<Smart.Span> spans = null;
+            if (recipe.CutPauses)
+            {
+                try { spans = await PauseSpansAsync(video, clip.Start, clip.Duration, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch { spans = null; }
+            }
+            double outDur = spans == null ? clip.Duration : spans.Sum(x => x.Length);
+            clip.OutDuration = outDur;
+            var words = spans == null ? clipWords : Smart.RemapWords(clipWords, spans);
+
+            // шрифт (з ViralCut): копіюємо файл поруч, щоб libass його знайшов
+            string fontsArg = "";
+            var font = Fonts.Find(recipe.FontName);
+            if (font != null)
+            {
+                try
+                {
+                    var fp = await Fonts.EnsureAsync(font, ct);
+                    var fdir = Path.Combine(dir, "fonts");
+                    Directory.CreateDirectory(fdir);
+                    var dst = Path.Combine(fdir, font.File);
+                    if (!File.Exists(dst)) File.Copy(fp, dst, true);
+                    style = style.With(font.Family, font.Bold);
+                    fontsArg = ":fontsdir=fonts";
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { }
+            }
+
             var keywords = new HashSet<string>(Metadata.Keywords(clip.Text, 6));
-            var capWords = recipe.Captions ? clipWords : new List<Word>();
+            var capWords = recipe.Captions ? words : new List<Word>();
             var hook = recipe.Hook ? clip.Hook : null;
-            var ass = SubtitleStyles.BuildAss(capWords, style, hook, clip.Duration, keywords, recipe.HookStyle);
+            var ass = SubtitleStyles.BuildAss(capWords, style, hook, outDur, keywords, recipe.HookStyle);
             File.WriteAllText(Path.Combine(dir, assName), ass, new UTF8Encoding(false));
 
             bool logo = !string.IsNullOrEmpty(recipe.LogoPath) && File.Exists(recipe.LogoPath);
-            var vf = "[0:v]" + (recipe.Layout == "fit" ? FitFilter : CropFilter(src, clip.FaceX));
-            if (recipe.ColorBoost) vf += ",eq=contrast=1.07:saturation=1.2:brightness=0.015:gamma=0.98,unsharp=5:5:0.45:5:5:0";
-            if (recipe.AutoZoom) vf += "," + ZoomFilter(clipWords, clip.Duration);
-            if (capWords.Count > 0 || hook != null) vf += ",subtitles=" + assName;
+            var frame = recipe.Layout == "fit" ? FitFilter : CropFilter(src, clip.FaceX, recipe.TrackFace ? clip.FacePath : null);
+            if (recipe.ColorBoost) frame += ",eq=contrast=1.07:saturation=1.2:brightness=0.015:gamma=0.98,unsharp=5:5:0.45:5:5:0";
+
+            var af = new List<string>();
+            if (recipe.EnhanceAudio) af.Add("highpass=f=70,afftdn=nf=-25,loudnorm=I=-14:TP=-1.5:LRA=11");
+            if (recipe.Fades) af.Add("afade=t=in:st=0:d=0.2,afade=t=out:st=" + Num(Math.Max(0, outDur - 0.35)) + ":d=0.35");
+
+            string vf, audioMap, afArg = "";
+            if (spans != null)
+            {
+                // кадр → розрізати на відрізки → склеїти разом зі звуком
+                int n = spans.Count;
+                var sb = new StringBuilder();
+                sb.Append("[0:v]").Append(frame).Append(",split=").Append(n);
+                for (int i = 0; i < n; i++) sb.Append("[cs").Append(i).Append("]");
+                sb.Append(";[0:a]asplit=").Append(n);
+                for (int i = 0; i < n; i++) sb.Append("[ca").Append(i).Append("]");
+                for (int i = 0; i < n; i++)
+                {
+                    sb.Append(";[cs").Append(i).Append("]trim=").Append(Num(spans[i].Start)).Append(":").Append(Num(spans[i].End)).Append(",setpts=PTS-STARTPTS[cv").Append(i).Append("]");
+                    sb.Append(";[ca").Append(i).Append("]atrim=").Append(Num(spans[i].Start)).Append(":").Append(Num(spans[i].End)).Append(",asetpts=PTS-STARTPTS[cx").Append(i).Append("]");
+                }
+                sb.Append(";");
+                for (int i = 0; i < n; i++) sb.Append("[cv").Append(i).Append("][cx").Append(i).Append("]");
+                sb.Append("concat=n=").Append(n).Append(":v=1:a=1[vcat][acat];[acat]").Append(af.Count > 0 ? string.Join(",", af) : "anull").Append("[aout];[vcat]");
+                vf = sb.ToString();
+                audioMap = " -map \"[aout]\"";
+                bool first = true;
+                Func<string> sep = () => { if (first) { first = false; return ""; } return ","; };
+                if (recipe.AutoZoom) vf += sep() + ZoomFilter(words, outDur);
+                if (capWords.Count > 0 || hook != null) vf += sep() + "subtitles=" + assName + fontsArg;
+                if (first) vf += "null";
+            }
+            else
+            {
+                vf = "[0:v]" + frame;
+                if (recipe.AutoZoom) vf += "," + ZoomFilter(words, outDur);
+                if (capWords.Count > 0 || hook != null) vf += ",subtitles=" + assName + fontsArg;
+                audioMap = " -map 0:a?";
+                afArg = af.Count > 0 ? " -af \"" + string.Join(",", af) + "\"" : "";
+            }
             if (logo)
                 vf += "[base];[1:v]scale=220:-1,format=rgba,colorchannelmixer=aa=0.9[lg];[base][lg]" + LogoOverlay(recipe.LogoPos);
             if (recipe.Fades)
-                vf += ",fade=t=in:st=0:d=0.25,fade=t=out:st=" + Num(Math.Max(0, clip.Duration - 0.35)) + ":d=0.35";
+                vf += ",fade=t=in:st=0:d=0.25,fade=t=out:st=" + Num(Math.Max(0, outDur - 0.35)) + ":d=0.35";
             vf += "[v]";
-            var af = new List<string>();
-            if (recipe.EnhanceAudio) af.Add("highpass=f=70,afftdn=nf=-25,loudnorm=I=-14:TP=-1.5:LRA=11");
-            if (recipe.Fades) af.Add("afade=t=in:st=0:d=0.2,afade=t=out:st=" + Num(Math.Max(0, clip.Duration - 0.35)) + ":d=0.35");
             var inputs = " -i " + Tools.Q(video) + (logo ? " -i " + Tools.Q(recipe.LogoPath) : "");
-            var afArg = af.Count > 0 ? " -af \"" + string.Join(",", af) + "\"" : "";
             var tmp = outPath + ".tmp.mp4";
             var args = "-y -v error -nostats -progress pipe:1 -ss " + F(clip.Start) + " -t " + F(clip.Duration) +
-                       inputs + " -filter_complex \"" + vf + "\" -map \"[v]\" -map 0:a?" + afArg + " -sn -dn -t " + F(clip.Duration) +
+                       inputs + " -filter_complex \"" + vf + "\" -map \"[v]\"" + audioMap + afArg + " -sn -dn -t " + F(outDur) +
                        " -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -r 30 -c:a aac -b:a 160k -ar 48000" +
                        " -movflags +faststart " + Tools.Q(tmp);
-            double total = clip.Duration;
+            double total = outDur;
             var r = await Tools.RunAsync(Tools.FFmpeg, args, dir, line =>
             {
                 if (line.StartsWith("out_time_ms=") && progress != null)

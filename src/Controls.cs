@@ -1134,6 +1134,7 @@ namespace AutoShorts
             public string Time, Title;
             public Color Color;
             public object Tag;
+            public bool Dim;      // заплановане / приватне — блідіше
         }
 
         public DateTime Month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
@@ -1191,13 +1192,14 @@ namespace AutoShorts
                         TextRenderer.DrawText(g, "+ ще " + (list.Count - k), small, new Rectangle(lr.X + fh / 3, lr.Y, lr.Width, lr.Height), Theme.Secondary, Theme.LeftMid);
                         break;
                     }
-                    Theme.FillRound(g, en == hoverEntry ? Theme.FillHover : Color.FromArgb(40, en.Color), lr, lr.Height / 2.5f);
+                    Theme.FillRound(g, en == hoverEntry ? Theme.FillHover : Color.FromArgb(en.Dim ? 16 : 40, en.Color), lr, lr.Height / 2.5f);
+                    if (en.Dim) Theme.StrokeRound(g, Color.FromArgb(90, en.Color), 1f, lr, lr.Height / 2.5f);
                     float dd = small.Height * 0.45f;
                     using (var b = new SolidBrush(en.Color)) g.FillEllipse(b, lr.X + fh / 3f, lr.Y + (lr.Height - dd) / 2, dd, dd);
                     int tx = lr.X + fh / 3 + (int)dd + 5;
                     int tw = TextRenderer.MeasureText(g, en.Time, small, Size.Empty, TextFormatFlags.NoPadding).Width;
                     TextRenderer.DrawText(g, en.Time, small, new Rectangle(tx, lr.Y, tw + 2, lr.Height), Theme.Secondary, Theme.LeftMid);
-                    TextRenderer.DrawText(g, en.Title, small, new Rectangle(tx + tw + 5, lr.Y, Math.Max(0, lr.Right - tx - tw - 9), lr.Height), Theme.Text, Theme.LeftMid);
+                    TextRenderer.DrawText(g, en.Title, small, new Rectangle(tx + tw + 5, lr.Y, Math.Max(0, lr.Right - tx - tw - 9), lr.Height), en.Dim ? Theme.Secondary : Theme.Text, Theme.LeftMid);
                     hits.Add(new KeyValuePair<Rectangle, Entry>(lr, en));
                     y += lineH;
                 }
@@ -1895,5 +1897,114 @@ namespace AutoShorts
             int tx = (int)(gx + gs + Font.Height * 0.7f);
             TextRenderer.DrawText(g, Text, F2, new Rectangle(tx, 0, Width - tx - Font.Height, Height), Enabled ? Color.FromArgb(227, 227, 227) : Theme.Tertiary, Theme.LeftMid);
         }
+    }
+
+    // Кругла аватарка (або перша літера на кольоровому тлі)
+    class Avatar : Control
+    {
+        public string ImagePath, Letter = "?";
+        public Color Tint = Theme.Accent;
+
+        public Avatar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            AutoSize = true;
+            Margin = new Padding(0, 2, 12, 2);
+        }
+
+        public override Size GetPreferredSize(Size proposedSize) { int s = (int)(Font.Height * 2.4f); return new Size(s, s); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            var back = Theme.BackOf(this);
+            g.Clear(back);
+            Theme.Smooth(g);
+            var r = new Rectangle(0, 0, Width - 1, Height - 1);
+            var img = Thumbs.Get(ImagePath, r.Width, r.Height);
+            if (img != null) g.DrawImage(img, r);
+            else
+            {
+                using (var b = new SolidBrush(Theme.Mix(Theme.Card, Tint, 0.35f))) g.FillEllipse(b, r);
+                TextRenderer.DrawText(g, Letter, Theme.Semi(Font.SizeInPoints * 1.2f), r, Tint, Theme.Center);
+            }
+            using (var path = new GraphicsPath())
+            {
+                path.AddRectangle(new Rectangle(-1, -1, Width + 2, Height + 2));
+                path.AddEllipse(new RectangleF(0, 0, Width - 0.5f, Height - 0.5f));
+                path.FillMode = FillMode.Alternate;
+                using (var b = new SolidBrush(back)) g.FillPath(b, path);
+            }
+        }
+    }
+
+    // Теплова карта «день тижня × година» (найкращий час публікації)
+    class HeatMap : Control
+    {
+        public List<double> Scores;          // 168 значень: DayOfWeek(Нд=0) * 24 + година
+        static readonly string[] Days = { "Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд" };
+        readonly ToolTip tip = new ToolTip();
+        int hoverD = -1, hoverH = -1;
+
+        public HeatMap()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            AutoSize = true;
+            Margin = new Padding(3);
+        }
+
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            int w = proposedSize.Width > 0 && proposedSize.Width < 20000 ? proposedSize.Width : (int)(520 * Theme.Dpi);
+            return new Size(w, Font.Height * 2 + (int)(7 * CellH()) + 6);
+        }
+
+        float LabelW { get { return Font.Height * 2.2f; } }
+        float CellW() { return (Width - LabelW) / 24f; }
+        float CellH() { return Font.Height * 1.45f; }
+
+        static int Idx(int row) { return (row + 1) % 7; } // рядок 0 = Пн → DayOfWeek 1
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(Theme.BackOf(this));
+            if (Scores == null || Scores.Count != 168) return;
+            Theme.Smooth(g);
+            float cw = CellW(), ch = CellH(), lw = LabelW;
+            var top3 = Enumerable.Range(0, 168).OrderByDescending(i => Scores[i]).Take(3).ToList();
+            var small = Theme.F(Font.SizeInPoints * 0.82f);
+            for (int r = 0; r < 7; r++)
+            {
+                TextRenderer.DrawText(g, Days[r], small, new Rectangle(0, (int)(r * ch), (int)lw, (int)ch), r >= 4 && r != 6 - 2 ? Theme.Secondary : Theme.Secondary, Theme.LeftMid);
+                for (int h = 0; h < 24; h++)
+                {
+                    int i = Idx(r) * 24 + h;
+                    double v = Math.Max(0, Math.Min(1, Scores[i]));
+                    var c = Theme.Mix(Theme.FieldBg, Theme.Accent, (float)Math.Pow(v, 1.6));
+                    var rc = new RectangleF(lw + h * cw + 1.5f, r * ch + 1.5f, cw - 3, ch - 3);
+                    Theme.FillRound(g, c, rc, 3);
+                    if (top3.Contains(i)) Theme.StrokeRound(g, Theme.Primary, 1.6f, rc, 3);
+                    if (r == hoverD && h == hoverH) Theme.StrokeRound(g, Theme.Text, 1f, rc, 3);
+                }
+            }
+            for (int h = 0; h < 24; h += 3)
+                TextRenderer.DrawText(g, h.ToString("00"), small, new Rectangle((int)(lw + h * cw), (int)(7 * ch + 2), (int)(cw * 3), Font.Height + 4), Theme.Tertiary, Theme.LeftMid);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            int h = (int)((e.X - LabelW) / CellW()), d = (int)(e.Y / CellH());
+            if (h < 0 || h > 23 || d < 0 || d > 6 || Scores == null || Scores.Count != 168) { h = -1; d = -1; }
+            if (h != hoverH || d != hoverD)
+            {
+                hoverH = h; hoverD = d;
+                Invalidate();
+                tip.SetToolTip(this, d < 0 ? null : Days[d] + " " + h.ToString("00") + ":00 — " + Math.Round(Scores[Idx(d) * 24 + h] * 100) + "% від найкращого часу");
+            }
+            base.OnMouseMove(e);
+        }
+
+        protected override void Dispose(bool disposing) { if (disposing) tip.Dispose(); base.Dispose(disposing); }
     }
 }

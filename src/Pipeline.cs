@@ -129,7 +129,8 @@ namespace AutoShorts
             Status(job, "Пошук цікавих моментів", 45);
             int count = job.ClipCount > 0 ? job.ClipCount : settings.ClipsPerVideo;
             int minLen = job.MinLen > 0 ? job.MinLen : settings.MinSeconds, maxLen = job.MaxLen > 0 ? job.MaxLen : settings.MaxSeconds;
-            var clips = Highlights.Find(Math.Max(info.Duration, loud.Length), info.Heatmap, loud, words, count, minLen, maxLen, job.RangeStart, job.RangeEnd, RecipeOf(job).Keywords);
+            var clips = Highlights.Find(Math.Max(info.Duration, loud.Length), info.Heatmap, loud, words, count, minLen, maxLen, job.RangeStart, job.RangeEnd, RecipeOf(job).Keywords, RecipeOf(job).SkipAds);
+            if (Highlights.AdBlocksFound > 0) log("Пропущено рекламних вставок: " + Highlights.AdBlocksFound);
             if (clips.Count == 0) throw new Exception("Не знайшлося фрагментів потрібної довжини.");
             log("Знайдено фрагментів: " + clips.Count);
 
@@ -157,22 +158,39 @@ namespace AutoShorts
             clip.Text = Captions.JoinText(clipWords);
             Metadata.Fill(clip, job, settings);
 
+            var recipe = RecipeOf(job);
+            bool track = recipe.TrackFace && recipe.Layout != "fit" && settings.FaceFraming && FaceFrame.Available;
+            // для руху кадру за обличчям — кадр щосекунди (щопівсекунди на коротких кліпах)
+            double step = track ? Math.Max(0.5, clip.Duration / 60) : Math.Max(1, clip.Duration / 30);
             var framesDir = Path.Combine(work, "frames_" + clip.Index);
-            var frames = await Renderer.ExtractFramesAsync(video, clip.Start, clip.Duration, framesDir, ct);
+            var frames = await Renderer.ExtractFramesAsync(video, clip.Start, clip.Duration, framesDir, ct, step);
             clip.FaceX = -1;
+            clip.FacePath = null;
             if (settings.FaceFraming && FaceFrame.Available)
             {
-                try { clip.FaceX = await FaceFrame.CenterXAsync(frames); }
+                try
+                {
+                    if (track)
+                    {
+                        var xs = await FaceFrame.TrackAsync(frames);
+                        clip.FacePath = FaceFrame.BuildPath(xs, step);
+                        var found = xs.Where(x => x >= 0).OrderBy(x => x).ToList();
+                        if (found.Count >= Math.Max(1, xs.Count / 5)) clip.FaceX = found[found.Count / 2];
+                    }
+                    else clip.FaceX = await FaceFrame.CenterXAsync(frames);
+                }
                 catch (Exception ex) { log("Пошук облич не спрацював: " + ex.Message); }
             }
             var style = SubtitleStyles.Get(clip.StyleName ?? job.StyleName ?? settings.SubtitleStyle);
             clip.VideoPath = Path.Combine(job.OutputDir, "short_" + clip.Index.ToString("00") + ".mp4");
-            await Renderer.RenderAsync(video, size, clip, clipWords, style, RecipeOf(job), clip.VideoPath, progress, ct);
+            await Renderer.RenderAsync(video, size, clip, clipWords, style, recipe, clip.VideoPath, progress, ct);
+            if (clip.OutDuration > 0 && clip.OutDuration < clip.Duration - 0.3)
+                log("Кліп " + clip.Index + ": вирізано паузи — " + clip.Duration.ToString("0.0") + " → " + clip.OutDuration.ToString("0.0") + " с");
 
             try
             {
                 int bi = Renderer.BrightestFrame(frames);
-                double at = bi < 0 ? clip.Duration / 3 : Math.Min(clip.Duration - 0.5, bi * Math.Max(1, clip.Duration / 30) + 0.5);
+                double at = bi < 0 ? clip.Duration / 3 : Math.Min(clip.Duration - 0.5, bi * step + 0.5);
                 clip.CoverPath = Path.Combine(job.OutputDir, "cover_" + clip.Index.ToString("00") + ".jpg");
                 await Renderer.MakeCoverAsync(video, size, clip, Math.Max(0, at), clip.Hook, clip.CoverPath, ct);
             }
