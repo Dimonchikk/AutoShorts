@@ -337,8 +337,15 @@ namespace AutoShorts
                             if (DateTime.UtcNow >= deadline) { rec.Cancel(); break; }
                             int rec_s = (int)(DateTime.UtcNow - recStart).TotalSeconds;
                             Status(job, "Запис ефіру " + TimeSpan.FromSeconds(rec_s).ToString(@"h\:mm\:ss") + " · кліпів: " + job.Clips.Count, 5);
+                            bool stop = false;
                             try { await Task.Delay(5000, ct); }
-                            catch (OperationCanceledException) { rec.Cancel(); try { await recTask; } catch { } throw; }
+                            catch (OperationCanceledException) { stop = true; }
+                            if (stop)
+                            {
+                                rec.Cancel();
+                                try { await recTask; } catch { }
+                                ct.ThrowIfCancellationRequested();
+                            }
                         }
                         recDone = recTask.IsCompleted;
                         if (recDone) { try { await recTask; } catch { } }
