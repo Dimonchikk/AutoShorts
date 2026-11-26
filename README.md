@@ -11,6 +11,7 @@
 
 [![Build](https://img.shields.io/github/actions/workflow/status/Dimonchikk/AutoShorts/build.yml?label=Build&logo=github)](https://github.com/Dimonchikk/AutoShorts/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/Dimonchikk/AutoShorts?label=Release&color=84cc16)](https://github.com/Dimonchikk/AutoShorts/releases/latest)
+[![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/Dimonchikk/AutoShorts/total?label=Завантажень&color=22c55e)](https://github.com/Dimonchikk/AutoShorts/releases)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)](#встановлення)
 [![C#](https://img.shields.io/badge/C%23-.NET%20Framework%204-512BD4?logo=dotnet&logoColor=white)](#збірка)
@@ -18,9 +19,30 @@
 
 ### [⬇️ Завантажити останній реліз](https://github.com/Dimonchikk/AutoShorts/releases/latest) · [Встановлення](#встановлення) · [Можливості](#можливості) · [Збірка](#збірка) · [Сайт](https://dimonchikk.github.io/AutoShorts/)
 
+<br>
+
+<img src="assets/screenshots/clips.png" width="860" alt="Кліпи з оцінкою віральності">
+
 </div>
 
 ---
+
+## Знімки екрана
+
+<table>
+<tr>
+<td width="50%"><img src="assets/screenshots/home.png" alt="Головна"><br><b>Головна</b> — вставте посилання, проєкти в роботі й готові</td>
+<td width="50%"><img src="assets/screenshots/create.png" alt="Новий проєкт"><br><b>Новий проєкт</b> — відрізок, кількість кліпів, формат, обробка</td>
+</tr>
+<tr>
+<td><img src="assets/screenshots/calendar.png" alt="Календар"><br><b>Календар</b> — усі відео каналів, заплановані й опубліковані</td>
+<td><img src="assets/screenshots/stats.png" alt="Статистика"><br><b>Статистика</b> — теплова карта «день × година» і поради</td>
+</tr>
+<tr>
+<td><img src="assets/screenshots/clips.png" alt="Кліпи"><br><b>Кліпи</b> — оцінка віральності, назва, перерендер</td>
+<td><img src="assets/screenshots/settings.png" alt="Налаштування"><br><b>Налаштування</b> — вхід через Google, шаблони, обробка</td>
+</tr>
+</table>
 
 ## Можливості
 
@@ -79,6 +101,10 @@ powershell -ExecutionPolicy Bypass -File src\build.ps1
 ## Реліз
 
 Версія — у `src/Version.cs`, опис змін — у [`CHANGES.md`](CHANGES.md) (розділ `## <версія>`). Workflow **Build** з потрібною версією збирає exe та інсталятор і створює чернетку релізу. Після публікації workflow **Telegram Release Post** надсилає пост у канал (секрети `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`). Вбудований вхід Google береться із секретів `GOOGLE_CLIENT_ID` і `GOOGLE_CLIENT_SECRET`.
+
+## Ліцензія
+
+[MIT](LICENSE) © 2026 Dmytro Brychnik. Шрифти в `fonts/` — під власними ліцензіями (SIL OFL 1.1, Apache 2.0), див. [`fonts/README.md`](fonts/README.md).
 
 <div align="center">
 
